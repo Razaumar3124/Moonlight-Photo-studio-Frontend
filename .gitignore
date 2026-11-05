@@ -1,0 +1,16 @@
+# Dependencies & builds
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+
+# Env files (commit only *.example)
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/

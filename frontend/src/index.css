@@ -1,0 +1,70 @@
+@import 'tailwindcss';
+@import './styles/theme.css';
+
+/*
+ * Auth hero is shown only where its baked-in tagline can't be cropped:
+ * ≥ lg AND a landscape viewport of at least 4:3 (hero panel ≥ ~0.66:1). See docs/ASSETS.md W2.
+ * Usage: `hidden hero-fits:block`
+ */
+@custom-variant hero-fits (@media (min-width: 64rem) and (min-aspect-ratio: 4/3));
+
+/*
+ * Short viewports (1366×768 / 1280×720 laptops, 1180×820 landscape tablets): tighten vertical
+ * rhythm so the auth form fits without scrolling. 55rem (880px) keeps 1440×900 at full spacing.
+ * Landscape only: portrait phones keep the mockup's generous mobile spacing and simply scroll.
+ */
+@custom-variant short (@media (max-height: 55rem) and (min-aspect-ratio: 1/1));
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+    /* Fills overscroll/bounce areas with the page colour instead of white. */
+    background-color: var(--color-cream-100);
+  }
+
+  body {
+    @apply bg-cream-100 font-sans text-ink-700 antialiased;
+    min-height: 100dvh;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display text-ink-900;
+  }
+
+  /* Keep browser autofill on-brand instead of the default yellow/blue fill. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-text-fill-color: var(--color-ink-900);
+    box-shadow: 0 0 0 1000px var(--color-cream-50) inset;
+    transition: background-color 9999s ease-out 0s;
+  }
+
+  /* Planner canvas frames (SVG <g role="button">): dashed ring on keyboard focus only. */
+  .wall-frame {
+    cursor: pointer;
+    outline: none;
+  }
+  .wall-frame .wall-frame-focus {
+    opacity: 0;
+  }
+  .wall-frame:focus-visible .wall-frame-focus {
+    opacity: 1;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-600;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

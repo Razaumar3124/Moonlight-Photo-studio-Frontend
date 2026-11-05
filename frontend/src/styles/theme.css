@@ -1,0 +1,98 @@
+/*
+ * Moonlight Photo Studio — design tokens.
+ * Values sampled from /reference_designs. Every token here becomes a Tailwind
+ * utility (e.g. --color-brand-600 -> bg-brand-600, text-brand-600).
+ * See docs/DESIGN_SYSTEM.md before adding or changing tokens.
+ */
+@theme {
+  /* ---------- Typography ---------- */
+  /* Self-hosted via @fontsource (src/main.tsx). Only the weights in use are loaded:
+     Playfair Display 600 (latin), DM Sans variable 100–1000. */
+  --font-display: 'Playfair Display', 'Georgia', 'Times New Roman', serif;
+  --font-sans: 'DM Sans Variable', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* ---------- Brand crimson (primary buttons, logo, active states) ---------- */
+  --color-brand-50: #fdf2f2;
+  --color-brand-100: #fbe3e3;
+  --color-brand-200: #f5c2c3;
+  --color-brand-300: #e99597;
+  --color-brand-400: #d45a5e;
+  --color-brand-500: #b52a2f;
+  --color-brand-600: #9b1118; /* primary — Sign In / Create Account */
+  --color-brand-700: #820d13;
+  --color-brand-800: #6a0c11;
+  --color-brand-900: #4a0a0d;
+  --color-brand-950: #2b0507;
+
+  /* ---------- Gold accent (EST. 1985, dividers, decorative curves) ---------- */
+  --color-gold-100: #f7ecd5;
+  --color-gold-200: #ecd6a8;
+  --color-gold-300: #dfbc78;
+  --color-gold-400: #c9a25a;
+  --color-gold-500: #b08840;
+  --color-gold-600: #8c6a2f;
+
+  /* ---------- Warm neutrals: cream surfaces + brown ink ---------- */
+  --color-cream-50: #fffcf7; /* raised cards / inputs */
+  --color-cream-100: #fdf6ec; /* page background */
+  --color-cream-200: #f8ecdc; /* subtle panels */
+  --color-cream-300: #efdfc9; /* borders */
+  --color-cream-400: #e2ceb3; /* strong borders */
+
+  --color-ink-900: #2a1712; /* headings */
+  --color-ink-700: #4a3329; /* body text */
+  --color-ink-500: #7a6356; /* muted text, placeholders */
+  --color-ink-300: #a8968a; /* disabled */
+
+  /* Form-field boundary. 3.0:1 against cream-100/50 to meet WCAG 1.4.11 (non-text contrast);
+     the mockup's cream-300 border (1.3:1) is too faint to identify the field. */
+  --color-cream-600: #9f8b77;
+
+  /* ---------- Semantic ---------- */
+  --color-success-500: #2f8f4e; /* "New" badge */
+  --color-success-50: #e8f5ec;
+  --color-danger-600: #c21f26; /* "Remove", errors */
+
+  /* ---------- Shape & depth ---------- */
+  --radius-field: 0.625rem; /* inputs + buttons */
+  --radius-card: 1rem; /* panels on the planner */
+
+  --shadow-card: 0 1px 2px rgb(74 10 13 / 0.04), 0 4px 16px rgb(74 10 13 / 0.06);
+  --shadow-field: 0 1px 2px rgb(74 10 13 / 0.05);
+  --shadow-button: 0 2px 8px rgb(155 17 24 / 0.25);
+
+  /* ---------- Motion ---------- */
+  /* Delayed fade so fast lazy-route loads don't flash a spinner. */
+  --animate-fade-in-delayed: fade-in 200ms ease-out 150ms both;
+  @keyframes dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* ---------- Breakpoints (Tailwind defaults + a wide desktop step) ---------- */
+  --breakpoint-3xl: 112rem; /* 1792px */
+}

@@ -1,0 +1,7 @@
+<!-- TEMPORARY favicon (Phase 1 workaround): crimson tile + cream crescent in brand colours.
+     Replace with a mark exported from the official vector logo. See docs/ASSETS.md. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#9b1118"/>
+  <mask id="m"><rect width="64" height="64" fill="#fff"/><circle cx="40" cy="27" r="17" fill="#000"/></mask>
+  <circle cx="30" cy="33" r="19" fill="#fdf6ec" mask="url(#m)"/>
+</svg>
