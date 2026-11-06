@@ -10,7 +10,7 @@ export default function LoginPage() {
   return (
     <AuthLayout hero={authAssets.login.hero} variant="login">
       <title>{pageTitle('Sign in')}</title>
-      <div className="flex flex-col gap-9 short:gap-5">
+      <div className="flex flex-col gap-9 auth-fluid:gap-[var(--auth-page-gap)]">
         <AuthHeader title="Welcome Back" subtitle="Your memories are waiting. Sign in to continue." />
         <LoginForm />
         <AuthSwitchPrompt

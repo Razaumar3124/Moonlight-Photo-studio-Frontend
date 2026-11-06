@@ -37,12 +37,13 @@ export function AuthForm({
   children,
 }: AuthFormProps) {
   return (
-    <div className={cn('flex flex-col', compact ? 'gap-5 short:gap-3.5' : 'gap-6 short:gap-4')}>
+    // Gaps: full-size classes, or the height-aware `--auth-*` values on auth-fluid viewports.
+    <div className={cn('flex flex-col auth-fluid:gap-[var(--auth-stack-gap)]', compact ? 'gap-5' : 'gap-6')}>
       <form
         noValidate
         onSubmit={onSubmit}
         aria-label={label}
-        className={cn('flex flex-col', compact ? 'gap-4 short:gap-3' : 'gap-5 short:gap-4')}
+        className={cn('flex flex-col auth-fluid:gap-[var(--auth-form-gap)]', compact ? 'gap-4' : 'gap-5')}
       >
         {formError && <Alert tone="error">{formError}</Alert>}
         {children}
@@ -53,7 +54,7 @@ export function AuthForm({
           fullWidth
           loading={submitting}
           loadingText={submittingLabel}
-          className="mt-1"
+          className="mt-1 auth-fluid:mt-[var(--auth-cta-gap)]"
         >
           {submitLabel}
         </Button>

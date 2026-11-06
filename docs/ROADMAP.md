@@ -118,6 +118,20 @@ align="center" titleTone="brand" compact`), register ornaments, register hero
 - [x] Verified: 176 tests (+13), 20 new audit + 51 planner browser checks on prod and dev (0 warnings),
       login 23 / register 28, no overflow on 70 page loads
 
+## Auth responsive pass ✅ (2026-11-07)
+
+- [x] Audit ([AUTH_RESPONSIVE_AUDIT.md](AUTH_RESPONSIVE_AUDIT.md)). The reference shots are the current UI at 80 % (register)
+      and 90 % (login) zoom on a 1536×735 browser viewport. Earlier "fits" checks used whole-screen sizes.
+- [x] Height-aware density: `auth-fluid` variant + `.auth-scope` custom properties (index.css). Fluid gaps,
+      logo, title and controls. Rem-stepped text with floors (13 / 14 / 12px, 40px controls, 44px and 16px on touch)
+- [x] Removed the 80px wave clearance on short screens. Ornaments scale with height instead
+- [x] `TextField` / `Button lg` read optional `--field-*` / `--button-lg-*` (defaults unchanged, Memory Wall
+      verified identical). The password toggle fits 40px fields
+- [x] Phones: compact portrait rhythm, safe-area padding, `viewport-fit=cover` scoped to auth pages
+      (`useViewportFitCover`)
+- [x] Verified: 0 overflow on both pages at 1280×585 → 2560×1440, 1024×768, 768×1024, 430×932, 390×844.
+      Interactions, tab order, 200 % zoom and 20px root font checked. `npm run check` + `npm run build` green
+
 ## Phase 5: Live API wiring
 
 `services/<domain>.ts` modules, auth provider + protected routes, React Query, and replacing

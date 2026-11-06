@@ -10,7 +10,7 @@ export default function RegisterPage() {
   return (
     <AuthLayout hero={authAssets.register.hero} variant="register" compact>
       <title>{pageTitle('Create account')}</title>
-      <div className="flex flex-col gap-6 short:gap-4">
+      <div className="flex flex-col gap-6 auth-fluid:gap-[var(--auth-page-gap)]">
         <AuthHeader
           title="Create Your Account"
           subtitle="Join Moonlight and start preserving your favourite memories."

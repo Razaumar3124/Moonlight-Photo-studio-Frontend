@@ -9,11 +9,18 @@
 @custom-variant hero-fits (@media (min-width: 64rem) and (min-aspect-ratio: 4/3));
 
 /*
- * Short viewports (1366×768 / 1280×720 laptops, 1180×820 landscape tablets): tighten vertical
- * rhythm so the auth form fits without scrolling. 55rem (880px) keeps 1440×900 at full spacing.
- * Landscape only: portrait phones keep the mockup's generous mobile spacing and simply scroll.
+ * Auth pages only: viewports where the form is sized by the available HEIGHT (docs/RESPONSIVE.md).
+ * - any viewport ≤ 55rem (880px) tall: laptops in a browser window, landscape tablets and phones;
+ * - narrow portrait viewports (phones), whatever their height.
+ * Above that (≥ 880px tall desktops, portrait tablets) the full-size design applies unchanged.
+ * Values come from the --auth-* / --field-* / --button-lg-* properties set on `.auth-scope` below.
  */
-@custom-variant short (@media (max-height: 55rem) and (min-aspect-ratio: 1/1));
+/* Block form: the shorthand would split the comma-separated media list into two selectors. */
+@custom-variant auth-fluid {
+  @media (max-height: 55rem), (max-width: 40rem) {
+    @slot;
+  }
+}
 
 @layer base {
   html {
@@ -57,6 +64,198 @@
 
   :focus-visible {
     @apply outline-2 outline-offset-2 outline-brand-600;
+  }
+
+  /* ---------------------------------------------------------------------------------------
+   * Auth density (Login / Register / Forgot password). Set on <main class="auth-scope">;
+   * Register adds data-density="compact". Nothing here applies outside the auth pages, and
+   * every primitive that reads these (TextField, Button lg) falls back to today's sizes.
+   *
+   * Vertical sizes interpolate linearly with the viewport height:
+   *   calc(V + (100dvh - H0) * Δ / span)  → V at height H0, V + Δ at H0 + span,
+   * clamped so they never leave the tier's range. Text sizes step in rem (never dvh), so they
+   * keep growing with browser zoom and the user's font-size setting (WCAG 1.4.4).
+   * ------------------------------------------------------------------------------------- */
+  .auth-scope {
+    --auth-control-min: 2.5rem;
+    --field-input-size: var(--auth-input-fine, 1rem);
+  }
+
+  /* Landscape, ≤ 880px tall: laptops in a browser window, landscape tablets/phones.
+     Calibrated on the reference shots (1536×735): login ≈ 90 %, register ≈ 80 % of full size. */
+  @media (max-height: 55rem) and (min-aspect-ratio: 1/1) {
+    .auth-scope {
+      --auth-col-w: clamp(25.5rem, calc(408px + (100dvh - 735px) * 40 / 145), 28rem);
+      --auth-pad-t: calc(
+        env(safe-area-inset-top) + clamp(0.5rem, calc(14px + (100dvh - 600px) * 18 / 280), 2rem)
+      );
+      --auth-pad-b: calc(
+        env(safe-area-inset-bottom) + clamp(0.5rem, calc(14px + (100dvh - 600px) * 18 / 280), 2rem)
+      );
+      --auth-logo-w: clamp(6rem, calc(120px + (100dvh - 600px) * 24 / 135), 11rem);
+      --auth-brand-gap: clamp(0.25rem, calc(6px + (100dvh - 600px) * 6 / 280), 0.75rem);
+      --auth-header-gap: clamp(0.5rem, calc(12px + (100dvh - 600px) * 16 / 280), 1.75rem);
+      --auth-title-size: clamp(1.5rem, calc(27px + (100dvh - 600px) * 5.4 / 135), 2.375rem);
+      --auth-title-gap: clamp(0.125rem, calc(4px + (100dvh - 600px) * 4 / 280), 0.5rem);
+      --auth-page-gap: clamp(0.625rem, calc(16px + (100dvh - 600px) * 16 / 280), 2rem);
+      --auth-stack-gap: clamp(0.5rem, calc(12px + (100dvh - 600px) * 8 / 280), 1.25rem);
+      --auth-form-gap: clamp(0.5rem, calc(12px + (100dvh - 600px) * 6 / 280), 1.125rem);
+      --auth-forgot-gap: clamp(0.25rem, calc(6px + (100dvh - 600px) * 4 / 280), 0.625rem);
+      --auth-cta-gap: clamp(0rem, calc(2px + (100dvh - 600px) * 2 / 280), 0.25rem);
+      --field-label-gap: clamp(0.25rem, calc(5px + (100dvh - 600px) * 3 / 280), 0.5rem);
+      --field-h: clamp(var(--auth-control-min), calc(43px + (100dvh - 735px) * 5 / 145), 3rem);
+      --button-lg-h: var(--field-h);
+
+      --auth-est-size: 0.8125rem;
+      --auth-subtitle-size: 1.0625rem;
+      --auth-prompt-size: 0.9375rem;
+      --field-label-size: 0.875rem;
+      --field-label-leading: 1.25rem;
+      --auth-input-fine: 0.9375rem;
+      --field-hint-size: 0.8125rem;
+      --field-hint-leading: 1.125rem;
+      --button-lg-size: 0.9375rem;
+
+      --auth-wave-br: clamp(5rem, calc(96px + (100dvh - 600px) * 48 / 280), 9rem);
+      --auth-leaf-tr: clamp(5rem, calc(100px + (100dvh - 600px) * 44 / 280), 9rem);
+      --auth-leaf-bc: clamp(2.5rem, calc(48px + (100dvh - 600px) * 16 / 280), 4rem);
+      --auth-leaf-tl: clamp(7rem, calc(150px + (100dvh - 600px) * 74 / 280), 14rem);
+      --auth-wave-tr: clamp(5rem, calc(104px + (100dvh - 600px) * 56 / 280), 10rem);
+      --auth-wave-bl: clamp(10rem, calc(220px + (100dvh - 600px) * 100 / 280), 20rem);
+    }
+
+    .auth-scope[data-density='compact'] {
+      --auth-col-w: clamp(25rem, calc(400px + (100dvh - 735px) * 80 / 145), 30rem);
+      --auth-pad-t: calc(
+        env(safe-area-inset-top) + clamp(0.5rem, calc(10px + (100dvh - 600px) * 14 / 280), 1.5rem)
+      );
+      --auth-pad-b: calc(
+        env(safe-area-inset-bottom) + clamp(0.5rem, calc(10px + (100dvh - 600px) * 14 / 280), 1.5rem)
+      );
+      --auth-logo-w: clamp(5.5rem, calc(104px + (100dvh - 600px) * 46 / 135), 12rem);
+      --auth-brand-gap: clamp(0.25rem, calc(4px + (100dvh - 600px) * 4 / 280), 0.5rem);
+      --auth-header-gap: clamp(0.375rem, calc(8px + (100dvh - 600px) * 16 / 280), 1.5rem);
+      --auth-title-size: clamp(1.5rem, calc(26px + (100dvh - 600px) * 6 / 135), 2.5rem);
+      --auth-title-gap: clamp(0.125rem, calc(2px + (100dvh - 600px) * 6 / 280), 0.5rem);
+      --auth-page-gap: clamp(0.5rem, calc(8px + (100dvh - 600px) * 16 / 280), 1.5rem);
+      --auth-stack-gap: clamp(0.375rem, calc(7px + (100dvh - 600px) * 13 / 280), 1.25rem);
+      --auth-form-gap: clamp(0.375rem, calc(6px + (100dvh - 600px) * 10 / 280), 1rem);
+      --field-label-gap: clamp(0.1875rem, calc(3px + (100dvh - 600px) * 5 / 280), 0.5rem);
+      --field-h: clamp(var(--auth-control-min), calc(40px + (100dvh - 735px) * 8 / 145), 3rem);
+
+      --auth-subtitle-size: 0.9375rem;
+    }
+  }
+
+  /* Landscape ≤ 768px tall (1536×735 reference, 1366×768, 1280×720/600 windows). */
+  @media (max-height: 48rem) and (min-aspect-ratio: 1/1) {
+    .auth-scope {
+      --auth-est-size: 0.75rem;
+      --auth-subtitle-size: 1rem;
+      --auth-prompt-size: 0.875rem;
+      --field-label-size: 0.8125rem;
+      --field-label-leading: 1.125rem;
+      --field-hint-size: 0.78125rem;
+      --field-hint-leading: 1.0625rem;
+    }
+    .auth-scope[data-density='compact'] {
+      --auth-subtitle-size: 0.875rem;
+      --auth-input-fine: 0.875rem;
+      --button-lg-size: 0.875rem;
+    }
+  }
+
+  /* Landscape < 600px tall (1280×585 windows, landscape phones): tightest density. */
+  @media (max-height: 37.4375rem) and (min-aspect-ratio: 1/1) {
+    .auth-scope {
+      --auth-subtitle-size: 0.875rem;
+      --auth-prompt-size: 0.8125rem;
+      --field-label-leading: 1.0625rem;
+      --auth-input-fine: 0.875rem;
+      --field-hint-size: 0.75rem;
+      --field-hint-leading: 1rem;
+      --button-lg-size: 0.875rem;
+    }
+    .auth-scope[data-density='compact'] {
+      --auth-subtitle-size: 0.8125rem;
+    }
+  }
+
+  /* Portrait phones (and portrait windows ≤ 880px tall). Interpolated from 560px to 840px tall.
+     Inputs stay 16px (no iOS zoom on focus) and controls ≥ 44px (touch). */
+  @media (max-aspect-ratio: 1/1) and (max-width: 40rem), (max-aspect-ratio: 1/1) and (max-height: 55rem) {
+    .auth-scope {
+      --auth-control-min: 2.75rem;
+      --auth-col-w: 28rem;
+      --auth-pad-t: calc(
+        env(safe-area-inset-top) + clamp(1rem, calc(16px + (100dvh - 560px) * 24 / 280), 2.5rem)
+      );
+      /* Clears the bottom-right wave (≤ 6rem wide) under the centred footer link. */
+      --auth-pad-b: calc(
+        env(safe-area-inset-bottom) + clamp(3.5rem, calc(56px + (100dvh - 560px) * 16 / 280), 4.5rem)
+      );
+      --auth-logo-w: clamp(6.5rem, calc(120px + (100dvh - 560px) * 56 / 280), 11rem);
+      --auth-brand-gap: clamp(0.25rem, calc(6px + (100dvh - 560px) * 6 / 280), 0.75rem);
+      --auth-header-gap: clamp(0.5rem, calc(12px + (100dvh - 560px) * 20 / 280), 2rem);
+      --auth-title-size: clamp(1.625rem, calc(28px + (100dvh - 560px) * 12 / 280), 2.5rem);
+      --auth-title-gap: clamp(0.125rem, calc(4px + (100dvh - 560px) * 4 / 280), 0.5rem);
+      --auth-page-gap: clamp(0.75rem, calc(14px + (100dvh - 560px) * 22 / 280), 2.25rem);
+      --auth-stack-gap: clamp(0.625rem, calc(14px + (100dvh - 560px) * 10 / 280), 1.5rem);
+      --auth-form-gap: clamp(0.625rem, calc(14px + (100dvh - 560px) * 6 / 280), 1.25rem);
+      --auth-forgot-gap: clamp(0.375rem, calc(8px + (100dvh - 560px) * 2 / 280), 0.625rem);
+      --auth-cta-gap: 0.25rem;
+      --field-label-gap: clamp(0.25rem, calc(6px + (100dvh - 560px) * 2 / 280), 0.5rem);
+      --field-h: clamp(var(--auth-control-min), calc(44px + (100dvh - 560px) * 4 / 280), 3rem);
+      --button-lg-h: var(--field-h);
+
+      --auth-est-size: 0.75rem;
+      --auth-subtitle-size: 0.9375rem;
+      --auth-prompt-size: 0.875rem;
+      --field-label-size: 0.875rem;
+      --field-label-leading: 1.25rem;
+      --auth-input-fine: 1rem;
+      --field-hint-size: 0.8125rem;
+      --field-hint-leading: 1.125rem;
+      --button-lg-size: 1rem;
+
+      --auth-wave-br: clamp(5rem, calc(80px + (100dvh - 560px) * 16 / 280), 6rem);
+      --auth-leaf-tr: clamp(4.5rem, calc(72px + (100dvh - 560px) * 24 / 280), 6rem);
+      /* Bottom-left leaf stays below the footer link (pad-b ≥ 3.5rem, leaf ≤ ~2.9rem tall). */
+      --auth-leaf-bc: 2rem;
+      --auth-leaf-tl: clamp(6.5rem, calc(104px + (100dvh - 560px) * 32 / 280), 8.5rem);
+      /* Never reaches the centred logo (logo ≤ 50% of the width). */
+      --auth-wave-tr: min(5rem, 20vw);
+      --auth-wave-bl: clamp(10rem, calc(160px + (100dvh - 560px) * 64 / 280), 14rem);
+    }
+
+    /* Register has 4 fields + a hint: 44px touch controls and a tighter rhythm, so it fits a
+       390×844 phone without scrolling (smaller phones scroll a little; nothing is clipped). */
+    .auth-scope[data-density='compact'] {
+      --auth-col-w: 30rem;
+      --auth-pad-t: calc(
+        env(safe-area-inset-top) + clamp(1rem, calc(16px + (100dvh - 560px) * 12 / 280), 1.75rem)
+      );
+      --auth-logo-w: clamp(6rem, calc(100px + (100dvh - 560px) * 36 / 280), 8.5rem);
+      --auth-brand-gap: clamp(0.25rem, calc(4px + (100dvh - 560px) * 4 / 280), 0.5rem);
+      --auth-header-gap: clamp(0.5rem, calc(8px + (100dvh - 560px) * 8 / 280), 1rem);
+      /* 8.5vw keeps "Create Your Account" on one line down to 320px. */
+      --auth-title-size: clamp(1.5rem, min(8.5vw, calc(26px + (100dvh - 560px) * 8 / 280)), 2.25rem);
+      --auth-title-gap: 0.25rem;
+      --auth-page-gap: clamp(0.625rem, calc(10px + (100dvh - 560px) * 6 / 280), 1rem);
+      --auth-stack-gap: clamp(0.5rem, calc(8px + (100dvh - 560px) * 6 / 280), 0.875rem);
+      --auth-form-gap: clamp(0.5rem, calc(8px + (100dvh - 560px) * 4 / 280), 0.75rem);
+      --field-label-gap: 0.25rem;
+      --field-h: var(--auth-control-min);
+      --auth-subtitle-size: 0.875rem;
+    }
+  }
+
+  /* Touch screens: ≥ 44px controls, and 16px inputs so iOS Safari doesn't zoom on focus. */
+  @media (pointer: coarse) {
+    .auth-scope {
+      --auth-control-min: 2.75rem;
+      --field-input-size: 1rem;
+    }
   }
 
   @media (prefers-reduced-motion: reduce) {

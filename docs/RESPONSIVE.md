@@ -29,15 +29,34 @@ The hero photos have their tagline **baked in** (ASSETS.md W2), so the hero uses
 ~0.66:1 would crop the text. Render the `<img>` only when that media query matches, so phones
 never download it.
 
-**`short` variant** (`max-height: 55rem` **and** landscape): tighter vertical rhythm and a smaller logo
-and waves, so the form fits without scrolling on 1366×768, 1280×720 and 1180×820. Portrait phones keep
-the mockup's spacing and scroll. Verified with no overflow at 320×568 → 2560×1440, 844×390 and
-720×450 (1440×900 at 200% zoom).
+### Height-aware density (`auth-fluid`, see [AUTH_RESPONSIVE_AUDIT.md](AUTH_RESPONSIVE_AUDIT.md))
 
-**Register** uses `compact` density: a 30rem column (the mockup's register form is wider than
-login's), smaller logo, a fluid one-line title (`clamp(1.75rem, 8.5vw, 2.5rem)`) and tighter gaps. It
-fits without scrolling at 1440×900 and up and on portrait tablets. With 4 fields plus the password
-hint it scrolls ~70–140px on 768/720-high laptops (the hero stays sticky) and on phones.
+Width picks the layout. **Height** picks the density. `<main class="auth-scope">` (Register adds
+`data-density="compact"`) carries CSS custom properties defined in `src/index.css`. Components use
+them through the `auth-fluid:` variant, which is active when the viewport is ≤ 55rem tall or ≤ 40rem wide.
+
+| Regime                           | When                                   | Behaviour                                                                                                     |
+| -------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Full size                        | > 880px tall (portrait tablets, ≥ 900px desktops) | The original design, unchanged classes. No extra growth at 2560×1440.                                          |
+| Landscape, 768–880px             | e.g. 1440×789, 1600×789                | Fluid: logo, title, gaps and controls interpolate down from full size.                                        |
+| Landscape, 600–768px             | 1536×735, 1366×768/657, 1280×720/633/600 | ≈ reference shots (`login-new` ≈ 90 %, `register-new` ≈ 80 % of full size). Controls 40–44px.                 |
+| Landscape, < 600px               | 1280×585, landscape phones             | Tightest: smaller logo, title, subtitle, waves. Scrolls when content still can't fit.                         |
+| Portrait phones                  | ≤ 40rem wide, or portrait ≤ 880px tall | Fluid between 560 and 840px tall. 44px touch controls, 16px inputs, safe-area padding.                        |
+
+Rules:
+
+- **Vertical sizes** use `clamp(min, calc(V + (100dvh − H0) · Δ / span), max)`.
+- **Text** steps in rem and never uses `dvh`, so it follows browser zoom and the user's font size. Floors are 13px labels, 14px inputs (16px on touch, to avoid iOS focus zoom), 12px hint and error text, and 40px controls (44px on touch).
+- **Shared primitives** (`TextField`, `Button size="lg"`) read `--field-*` and `--button-lg-*` with fallbacks equal to the defaults. Pages that don't set them (the Memory Wall dialogs) are unchanged.
+- **Corner ornaments** scale with the same properties, so short screens need no extra bottom padding for the footer link.
+- **Safe areas:** `useViewportFitCover` adds `viewport-fit=cover` only while an auth page is mounted. The column pads with `env(safe-area-inset-*)`.
+- **Scrolling** is never disabled. The column uses `min-h-dvh`, so it scrolls with the keyboard open, at 200 % zoom, with large fonts, and when validation errors appear.
+
+**Verified** (browser viewports, not whole-screen sizes):
+
+- **No scroll on either page:** 1280×585, 1280×600, 1280×633, 1280×720, 1366×657, 1366×768, 1536×735, 1440×789, 1440×900, 1600×900, 1920×969, 1920×1080, 2560×1440, 1024×768, 768×1024, 430×932 and 390×844.
+- **Login also fits** at 390×664 and 375×667.
+- **Scrolls, as expected (nothing clipped):** Register on phones under ≈ 800px tall, Login on 375×553 and 320×568, and both pages on landscape phones.
 
 ## Memory Wall Planner
 
@@ -61,3 +80,7 @@ scroll horizontally on small screens instead of wrapping.
 
 Check at **320, 375, 414, 768, 1024, 1280, 1440, 1920** widths, in portrait and landscape on phone
 widths, with browser zoom at 200%, and with keyboard-only navigation.
+
+Test heights as **browser viewports**, not screen sizes. Subtract the taskbar (~48px) and the browser
+chrome (~63–87px). A 1280×720 screen leaves ≈ 1280×585–633 px, and 1920×1080 at 125 % scaling
+leaves ≈ 1536×735 px.

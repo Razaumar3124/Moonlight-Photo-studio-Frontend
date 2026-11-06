@@ -26,7 +26,8 @@ const variants: Record<ButtonVariant, string> = {
 
 const sizes: Record<ButtonSize, string> = {
   md: 'h-11 px-4 text-sm',
-  lg: 'h-12 px-5 text-base',
+  // Optional page density (auth pages set these in `.auth-scope`); defaults are 48px / 16px.
+  lg: 'h-[var(--button-lg-h,3rem)] px-5 text-[length:var(--button-lg-size,1rem)] leading-normal',
 }
 
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {

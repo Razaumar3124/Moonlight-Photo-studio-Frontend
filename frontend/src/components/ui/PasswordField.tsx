@@ -27,8 +27,9 @@ export function PasswordField({ id, leftIcon = <Lock />, ...props }: PasswordFie
           aria-label="Show password"
           aria-pressed={visible}
           aria-controls={inputId}
-          // Negative margin enlarges the tap target to 40px without shifting the icon.
-          className="-mr-2 grid size-10 place-items-center rounded-full text-ink-500 transition-colors hover:bg-cream-200 hover:text-ink-900 [&>svg]:size-5"
+          // Negative margin enlarges the tap target to 40px without shifting the icon. In a compact
+          // (40px) field it shrinks to 36px so the hover circle stays inside the border.
+          className="-mr-2 grid size-[min(2.5rem,calc(var(--field-h,3rem)_-_0.25rem))] place-items-center rounded-full text-ink-500 transition-colors hover:bg-cream-200 hover:text-ink-900 [&>svg]:size-5"
         >
           {visible ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
         </button>

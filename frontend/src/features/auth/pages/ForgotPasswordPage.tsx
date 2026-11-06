@@ -14,7 +14,7 @@ export default function ForgotPasswordPage() {
   return (
     <AuthLayout hero={authAssets.login.hero} variant="login">
       <title>{pageTitle('Reset password')}</title>
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-8 auth-fluid:gap-[var(--auth-page-gap)]">
         <AuthHeader title="Reset Password" subtitle="We’ll help you get back to your memories." />
         <Alert tone="info">
           Online password reset is coming soon. Until then, please contact the studio and we’ll help you
