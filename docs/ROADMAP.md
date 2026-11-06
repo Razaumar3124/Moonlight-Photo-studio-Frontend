@@ -132,6 +132,24 @@ align="center" titleTone="brand" compact`), register ornaments, register hero
 - [x] Verified: 0 overflow on both pages at 1280×585 → 2560×1440, 1024×768, 768×1024, 430×932, 390×844.
       Interactions, tab order, 200 % zoom and 20px root font checked. `npm run check` + `npm run build` green
 
+## Memory Wall redesign: "Gallery Atelier" ✅ (2026-11-07)
+
+- [x] Audit + plan: [MEMORY_WALL_REDESIGN_AUDIT.md](MEMORY_WALL_REDESIGN_AUDIT.md)
+- [x] Fixed-height studio shell, three layout modes (desktop / split / stacked) and three height tiers.
+      No page scroll from 2560×1440 down to 1280×600, on tablets, phones and landscape phones
+- [x] Stage: dark lit backdrop and the wall fitted on both axes. Toolbar: layout style, view toggles,
+      fullscreen and a ⋯ menu (view, Download PNG, Reset). The Generate cluster sits in the footer
+- [x] Carousel arrows/dots removed (main + fullscreen, incl. the ←/→ keys). Generate Layout is a
+      single button (the Variations split menu was later removed; variants stay internal to Generate)
+- [x] Header: project title, fit chip with warnings + quick fixes, Templates, My Designs, Save and a
+      charcoal Request a Quote. "My Saved Templates" renamed **My Designs** (copy only, same store)
+- [x] Inspector: ‹ › + thumbnail navigator, Photo / Frame / Mount tabs, Apply to all with confirmation
+- [x] Room: new floor strip, 84″ sofa, lamp and plant cut-outs drawn to scale (W4), included in exports.
+      New 4:3 AI thumbnails, three landscape samples, crescent logo mark
+- [x] New primitives: `Menu`, `Tabs`, `Tooltip`; planner sizes on the existing ones (defaults unchanged)
+- [x] Verified: `npm run check` green (182 tests, +6 room tests), 11 viewports with 0 page overflow,
+      52 desktop + 9 phone workflow checks in Edge, 0 console errors
+
 ## Phase 5: Live API wiring
 
 `services/<domain>.ts` modules, auth provider + protected routes, React Query, and replacing

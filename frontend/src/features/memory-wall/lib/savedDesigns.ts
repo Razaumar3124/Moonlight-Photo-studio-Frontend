@@ -2,7 +2,7 @@ import { createInitialState, plannerReducer, sanitizePlannerState, type PlannerS
 import { findTemplate } from './templates'
 
 /**
- * MOCK store for "My Saved Templates" (UI-only phases). Phase 5 swaps this module for
+ * MOCK store for "My Designs" (UI-only phases). Phase 5 swaps this module for
  * GET/POST/DELETE /designs (API_ALIGNMENT M7). The function signatures stay the same.
  * Persisted in localStorage so the mock behaves realistically across reloads. Everything read
  * back is shape-checked, since storage is user-editable.

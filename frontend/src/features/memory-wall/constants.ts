@@ -95,8 +95,10 @@ export const PLANNER_RULES = {
 } as const
 
 /**
- * The room photo (background-wall-plain.webp) is drawn to scale: its sofa is the "84″ reference
- * sofa". Pixel bounds measured on the 1466×667 source.
+ * Reference-sofa line used by the GEOMETRY (sofa clearance): measured on the original room photo
+ * (background-wall-plain.webp, 1466×667), whose sofa is the "84″ reference sofa". The room is now
+ * drawn from separate cut-outs (lib/room.ts), which align the new sofa's top to this same line,
+ * so layouts and fit checks are unchanged.
  */
 export const ROOM_PHOTO = {
   widthPx: 1466,
@@ -130,7 +132,7 @@ export const LAYOUT_STYLES = [
 
 export type LayoutStyleId = (typeof LAYOUT_STYLES)[number]['id']
 
-/** Number of alternative arrangements shown in the canvas carousel. */
+/** Alternative arrangements per layout style (Generate searches them; the Variations menu picks one). */
 export const VARIANT_COUNT = 3
 
 /** AI Layout Assistant presets: featured templates with their bundled thumbnails. */

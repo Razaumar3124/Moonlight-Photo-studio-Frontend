@@ -111,8 +111,8 @@ export function Dialog({
         onClose()
       }}
       className={cn(
-        'm-auto flex-col overflow-hidden rounded-2xl border border-cream-300 bg-cream-50 p-0 text-ink-700 shadow-2xl open:flex',
-        'backdrop:bg-ink-900/55 backdrop:backdrop-blur-[3px]',
+        'm-auto flex-col overflow-hidden rounded-2xl border border-ivory-300 bg-ivory-50 p-0 text-charcoal-700 shadow-2xl open:flex',
+        'backdrop:bg-charcoal-900/60 backdrop:backdrop-blur-[3px]',
         'open:animate-[dialog-in_220ms_cubic-bezier(0.2,0.9,0.3,1)] open:backdrop:animate-[fade-in_200ms_ease-out]',
         sizes[size],
         className,
@@ -120,20 +120,20 @@ export function Dialog({
     >
       {open && (
         <>
-          <header className="flex items-start gap-3 border-b border-cream-300 px-4 py-3.5 sm:px-6 sm:py-4">
+          <header className="flex items-center gap-3 border-b border-ivory-300 px-4 py-3 sm:px-6 sm:py-3.5">
             <div className="min-w-0 flex-1">
-              <h2 id={titleId} className="truncate text-xl text-brand-700 sm:text-2xl">
+              <h2 id={titleId} className="truncate text-lg font-semibold text-charcoal-900 sm:text-xl">
                 {title}
               </h2>
               {description && (
-                <p id={descId} className="mt-0.5 text-sm text-ink-500">
+                <p id={descId} className="mt-0.5 truncate text-[0.8125rem] text-charcoal-500">
                   {description}
                 </p>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-1.5">
               {headerActions}
-              <IconButton label="Close" icon={<X />} onClick={onClose} />
+              <IconButton label="Close" icon={<X />} variant="quiet" size="sm" onClick={onClose} />
             </div>
           </header>
           <div
@@ -145,7 +145,7 @@ export function Dialog({
             {children}
           </div>
           {footer && (
-            <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-cream-300 bg-cream-100/60 px-4 py-3 sm:px-6">
+            <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-ivory-300 bg-ivory-100/60 px-4 py-3 sm:px-6">
               {footer}
             </footer>
           )}

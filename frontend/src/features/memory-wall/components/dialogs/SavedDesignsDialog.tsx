@@ -20,7 +20,7 @@ interface SavedDesignsDialogProps {
 
 const dateFormat = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
 
-/** "My Saved Templates": search, open or delete saved designs (mock store until Phase 5). */
+/** "My Designs": search, open or delete saved designs (mock store until Phase 5). */
 export function SavedDesignsDialog({
   open,
   onClose,
@@ -46,7 +46,7 @@ export function SavedDesignsDialog({
       open={open}
       onClose={onClose}
       size="lg"
-      title="My Saved Templates"
+      title="My Designs"
       description={
         designs.length ? `${designs.length} saved ${designs.length === 1 ? 'design' : 'designs'}` : undefined
       }

@@ -35,13 +35,13 @@ Width picks the layout. **Height** picks the density. `<main class="auth-scope">
 `data-density="compact"`) carries CSS custom properties defined in `src/index.css`. Components use
 them through the `auth-fluid:` variant, which is active when the viewport is ≤ 55rem tall or ≤ 40rem wide.
 
-| Regime                           | When                                   | Behaviour                                                                                                     |
-| -------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Full size                        | > 880px tall (portrait tablets, ≥ 900px desktops) | The original design, unchanged classes. No extra growth at 2560×1440.                                          |
-| Landscape, 768–880px             | e.g. 1440×789, 1600×789                | Fluid: logo, title, gaps and controls interpolate down from full size.                                        |
-| Landscape, 600–768px             | 1536×735, 1366×768/657, 1280×720/633/600 | ≈ reference shots (`login-new` ≈ 90 %, `register-new` ≈ 80 % of full size). Controls 40–44px.                 |
-| Landscape, < 600px               | 1280×585, landscape phones             | Tightest: smaller logo, title, subtitle, waves. Scrolls when content still can't fit.                         |
-| Portrait phones                  | ≤ 40rem wide, or portrait ≤ 880px tall | Fluid between 560 and 840px tall. 44px touch controls, 16px inputs, safe-area padding.                        |
+| Regime               | When                                              | Behaviour                                                                                     |
+| -------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Full size            | > 880px tall (portrait tablets, ≥ 900px desktops) | The original design, unchanged classes. No extra growth at 2560×1440.                         |
+| Landscape, 768–880px | e.g. 1440×789, 1600×789                           | Fluid: logo, title, gaps and controls interpolate down from full size.                        |
+| Landscape, 600–768px | 1536×735, 1366×768/657, 1280×720/633/600          | ≈ reference shots (`login-new` ≈ 90 %, `register-new` ≈ 80 % of full size). Controls 40–44px. |
+| Landscape, < 600px   | 1280×585, landscape phones                        | Tightest: smaller logo, title, subtitle, waves. Scrolls when content still can't fit.         |
+| Portrait phones      | ≤ 40rem wide, or portrait ≤ 880px tall            | Fluid between 560 and 840px tall. 44px touch controls, 16px inputs, safe-area padding.        |
 
 Rules:
 
@@ -60,21 +60,36 @@ Rules:
 
 ## Memory Wall Planner
 
-The laptop mockup is a 3-column dashboard. It must collapse cleanly:
+A fixed-height studio workspace (`h-dvh`, no page scroll). See
+[MEMORY_WALL_REDESIGN_AUDIT.md](MEMORY_WALL_REDESIGN_AUDIT.md) §3, §7, §8. **Width decides the
+structure** (`useLayoutMode` in `MemoryWallPage.tsx`). **Height decides the density** (the
+`.planner-scope` custom properties in `index.css`).
 
-| Viewport | Layout                                                                                                                                                                                                                                        |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `< md`   | Single column: **Canvas** first, then Wall Configuration → Layout → AI Assistant → Frame & Photo → Preview Settings, all collapsible. A fixed bottom bar holds Preview / Templates / Saved + **Request a Quote** (labels shrink below 360px). |
-| `md–lg`  | Canvas full width on top; the side panels sit below in a 2-column grid.                                                                                                                                                                       |
-| `xl+`    | 3 columns as in the mockup: left config (~22rem) · canvas (fluid) · right frame panel (~24rem). Action bar spans the full width beneath.                                                                                                      |
-| `2xl+`   | Same, with a max container width (~1600px) centred.                                                                                                                                                                                           |
+| Mode      | When                                                                            | Layout                                                                                                                                  |
+| --------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `desktop` | ≥ 1280px wide                                                                   | Header · set-up rail (`--pl-rail-l`) · stage (fluid) · frame inspector (`--pl-rail-r`)                                                  |
+| `split`   | < 1280px and landscape (≥ 480px wide): tablets, small laptops, landscape phones | Header · stage · one side panel with **Set up / Frame** tabs                                                                            |
+| `stacked` | Portrait phones and tablets                                                     | Header · stage (≤ 50dvh) · docked sheet with **Wall / Layout / Frame / View** tabs · bottom bar (Regenerate, Redesign, Generate, Quote) |
 
-Header: logo + "Memory Wall Planner" title. On phones, hide the subtitle and the vertical
-divider and collapse Profile to an avatar button.
+| Density tier      | Rule                                  | `--pl-ctl` | Target                     |
+| ----------------- | ------------------------------------- | ---------- | -------------------------- |
+| compact (default) | —                                     | 36px       | 1536×735, 1366×768         |
+| dense             | `max-height: 40rem`                   | 32px       | 1280×600, landscape phones |
+| roomy             | `min-height: 50rem` and ≥ 1440px wide | 40px       | 1920×1080 and up           |
+| touch             | `pointer: coarse`                     | 40px       | any                        |
 
-Canvas: keep the wall's aspect ratio derived from width × height inputs (`aspect-[w/h]`
-via inline style). Dimension guides and labels scale with the container. Frame-index chips (1–9)
-scroll horizontally on small screens instead of wrapping.
+Rules:
+
+- Rails, the side panel and the sheet scroll **internally** (`overflow-y-auto`, and `relative`
+  so `sr-only` children can't stretch the document). The stage never scrolls: the wall fits a
+  `container-type: size` box on both axes (`WallCanvas fit="container"`).
+- Every scroll container and grid track is `min-h-0` / `minmax(0,1fr)`. The shell's column is
+  `minmax(0,1fr)`, so a wide header can't widen the page.
+- Selecting a frame on the wall switches the side panel or sheet to its **Frame** tab.
+- The bottom bar hides while a text field in the sheet has focus (on-screen keyboard).
+- Below 320px tall (`tiny`), the shell falls back to normal page scrolling.
+- The stage is a container (`@container/stage`). When it is narrow, the view toggles move into
+  the ⋯ menu and button labels collapse to icons.
 
 ## Testing checklist per screen
 

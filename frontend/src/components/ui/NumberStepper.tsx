@@ -16,6 +16,8 @@ interface NumberStepperProps {
   /** Decimal places shown. */
   precision?: number
   disabled?: boolean
+  /** `sm`: planner linen pill that follows the density (`--pl-ctl`). */
+  size?: 'sm' | 'md'
   className?: string
 }
 
@@ -36,8 +38,10 @@ export function NumberStepper({
   unit,
   precision = 1,
   disabled = false,
+  size = 'md',
   className,
 }: NumberStepperProps) {
+  const sm = size === 'sm'
   const id = useId()
   const format = (v: number) => String(roundTo(v, precision))
   // While typing, show the raw draft; otherwise always show the current value, so external
@@ -69,17 +73,32 @@ export function NumberStepper({
   // mid-press (focus would jump to <body> after holding Enter on "+").
   const atMin = value <= min
   const atMax = value >= max
-  const btn =
-    'grid size-9 shrink-0 place-items-center rounded-md text-ink-700 transition-colors hover:bg-cream-200 active:bg-cream-300 disabled:cursor-not-allowed disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-transparent [&>svg]:size-4'
+  const btn = cn(
+    'grid size-9 shrink-0 place-items-center rounded-md text-ink-700 transition-colors hover:bg-cream-200 active:bg-cream-300 disabled:cursor-not-allowed disabled:opacity-40 aria-disabled:cursor-not-allowed aria-disabled:opacity-40 aria-disabled:hover:bg-transparent [&>svg]:size-4',
+    sm &&
+      'size-[calc(var(--pl-ctl,2rem)-0.375rem)] text-charcoal-700 hover:bg-white active:bg-ivory-300 [&>svg]:size-3.5',
+  )
 
   return (
     <div className={cn('flex min-w-0 items-center justify-between gap-3', className)}>
-      <label htmlFor={id} className={cn(hideLabel ? 'sr-only' : 'text-sm font-semibold text-ink-900')}>
+      <label
+        htmlFor={id}
+        className={cn(
+          hideLabel
+            ? 'sr-only'
+            : sm
+              ? 'text-[0.8125rem] font-semibold text-charcoal-700'
+              : 'text-sm font-semibold text-ink-900',
+        )}
+      >
         {label}
       </label>
       <div
         className={cn(
-          'flex h-10 items-center gap-0.5 rounded-lg border border-cream-600/60 bg-cream-50 p-0.5',
+          'flex items-center gap-0.5 rounded-lg border p-0.5',
+          sm
+            ? 'h-(--pl-ctl,2rem) border-transparent bg-ivory-200 hover:border-ivory-300'
+            : 'h-10 border-cream-600/60 bg-cream-50',
           'focus-within:border-brand-600 focus-within:ring-3 focus-within:ring-brand-600/15',
           'forced-colors:focus-within:outline-2 forced-colors:focus-within:outline-[Highlight]',
           disabled && 'opacity-50',
@@ -110,9 +129,12 @@ export function NumberStepper({
             aria-valuemax={max}
             aria-valuenow={value}
             role="spinbutton"
-            className="w-10 bg-transparent text-center text-base font-semibold text-ink-900 tabular-nums outline-none"
+            className={cn(
+              'bg-transparent text-center font-semibold tabular-nums outline-none',
+              sm ? 'w-8 text-sm text-charcoal-900' : 'w-10 text-base text-ink-900',
+            )}
           />
-          {unit && <span className="text-xs text-ink-500">{unit}</span>}
+          {unit && <span className={cn('text-xs', sm ? 'text-charcoal-500' : 'text-ink-500')}>{unit}</span>}
         </div>
         <button
           type="button"

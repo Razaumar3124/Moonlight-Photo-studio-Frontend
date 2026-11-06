@@ -22,6 +22,21 @@
   }
 }
 
+/*
+ * Memory Wall planner: viewports too short for the fixed studio shell (heavy zoom, tiny
+ * landscape phones). The page scrolls normally instead of squeezing the wall. Usage: `tiny:h-auto`
+ */
+@custom-variant tiny (@media (max-height: 20rem));
+/* Planner height tiers for layout tweaks the --pl-* properties can't express (match .planner-scope). */
+@custom-variant dense (@media (max-height: 40rem));
+@custom-variant roomy (@media (min-height: 50rem));
+
+/* Planner: visible scrollbar that stays quiet on ivory rails. */
+@utility scroll-quiet {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ivory-300) transparent;
+}
+
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
@@ -255,6 +270,73 @@
     .auth-scope {
       --auth-control-min: 2.75rem;
       --field-input-size: 1rem;
+    }
+  }
+
+  /* ---------------------------------------------------------------------------------------
+   * Memory Wall planner density (docs/MEMORY_WALL_REDESIGN_AUDIT.md §7.1). Width decides the
+   * structure (React); HEIGHT decides the density here. Text sizes are rem and never follow
+   * the viewport, so browser zoom and font-size settings still scale them (WCAG 1.4.4).
+   *   compact (default) · 1536×735   dense ≤ 640px tall · 1280×600   roomy ≥ 800px tall + wide
+   * ------------------------------------------------------------------------------------- */
+  .planner-scope {
+    --pl-header: 3.25rem;
+    --pl-ctl: 2.25rem;
+    --pl-bar: 2.75rem;
+    --pl-footer: 3.25rem;
+    --pl-rail-l: 18rem;
+    --pl-rail-r: 20rem;
+    --pl-pad: 1rem;
+    --pl-gap: 1.125rem;
+    --pl-stage-pad: 1rem;
+  }
+  @media (max-height: 40rem) {
+    .planner-scope {
+      --pl-header: 3rem;
+      --pl-ctl: 2rem;
+      --pl-bar: 2.5rem;
+      --pl-footer: 2.875rem;
+      --pl-rail-l: 17rem;
+      --pl-rail-r: 18.75rem;
+      --pl-pad: 0.75rem;
+      --pl-gap: 0.75rem;
+      --pl-stage-pad: 0.625rem;
+    }
+  }
+  @media (min-height: 50rem) and (min-width: 90rem) {
+    .planner-scope {
+      --pl-header: 3.5rem;
+      --pl-ctl: 2.5rem;
+      --pl-bar: 3rem;
+      --pl-footer: 3.5rem;
+      --pl-rail-l: 20rem;
+      --pl-rail-r: 22rem;
+      --pl-pad: 1.25rem;
+      --pl-gap: 1.5rem;
+      --pl-stage-pad: 1.5rem;
+    }
+  }
+  @media (min-width: 112rem) and (min-height: 50rem) {
+    .planner-scope {
+      --pl-rail-l: 21rem;
+      --pl-rail-r: 23.5rem;
+    }
+  }
+  /* Touch: keep ≥ 40px controls whatever the height tier. */
+  @media (pointer: coarse) {
+    .planner-scope {
+      --pl-ctl: 2.5rem;
+    }
+  }
+
+  /* Planner canvas hover outline (desktop pointers only; selection has its own ring). */
+  .wall-frame .wall-frame-hover {
+    opacity: 0;
+    transition: opacity 150ms ease-out;
+  }
+  @media (hover: hover) {
+    .wall-frame:hover .wall-frame-hover {
+      opacity: 1;
     }
   }
 

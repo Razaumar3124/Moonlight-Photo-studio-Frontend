@@ -9,26 +9,50 @@ interface SwitchProps {
   /** Decorative icon before the label. */
   icon?: ReactNode
   disabled?: boolean
+  /** `sm`: 20×36 planner switch with charcoal "on" state and planner type sizes. */
+  size?: 'sm' | 'md'
   className?: string
 }
 
-/** On/off setting row: label (+ description) on the left, a crimson switch on the right. */
-export function Switch({ label, description, checked, onChange, icon, disabled, className }: SwitchProps) {
+/** On/off setting row: label (+ description) on the left, the switch on the right. */
+export function Switch({
+  label,
+  description,
+  checked,
+  onChange,
+  icon,
+  disabled,
+  size = 'md',
+  className,
+}: SwitchProps) {
   const labelId = useId()
   const descId = useId()
+  const sm = size === 'sm'
   return (
-    <div className={cn('flex items-center gap-3', className)}>
+    <div className={cn('flex items-center gap-3', disabled && 'opacity-60', className)}>
       {icon && (
-        <span aria-hidden className="flex shrink-0 text-ink-500 [&>svg]:size-[1.125rem]">
+        <span
+          aria-hidden
+          className={cn(
+            'flex shrink-0 [&>svg]:size-[1.125rem]',
+            sm ? 'text-charcoal-500 [&>svg]:size-4' : 'text-ink-500',
+          )}
+        >
           {icon}
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <span id={labelId} className="block text-sm font-medium text-ink-900">
+        <span
+          id={labelId}
+          className={cn(
+            'block font-medium',
+            sm ? 'text-[0.8125rem] text-charcoal-900' : 'text-sm text-ink-900',
+          )}
+        >
           {label}
         </span>
         {description && (
-          <span id={descId} className="block text-xs text-ink-500">
+          <span id={descId} className={cn('block text-xs', sm ? 'text-charcoal-500' : 'text-ink-500')}>
             {description}
           </span>
         )}
@@ -42,18 +66,26 @@ export function Switch({ label, description, checked, onChange, icon, disabled, 
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          'relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors duration-200',
+          'relative inline-flex shrink-0 items-center rounded-full border transition-colors duration-200',
           'before:absolute before:-inset-2 before:content-[""]', // 44px-ish hit area
-          checked ? 'border-brand-700 bg-brand-600' : 'border-cream-400 bg-cream-300',
-          'disabled:cursor-not-allowed disabled:opacity-50',
+          sm ? 'h-5 w-9' : 'h-7 w-12',
+          checked
+            ? sm
+              ? 'border-charcoal-900 bg-charcoal-900'
+              : 'border-brand-700 bg-brand-600'
+            : sm
+              ? 'border-ivory-300 bg-ivory-300 hover:bg-charcoal-300/60'
+              : 'border-cream-400 bg-cream-300',
+          'disabled:cursor-not-allowed',
           'forced-colors:border-[ButtonText]',
         )}
       >
         <span
           aria-hidden
           className={cn(
-            'size-5 rounded-full bg-white shadow-md transition-transform duration-200',
-            checked ? 'translate-x-6' : 'translate-x-1',
+            'rounded-full bg-white shadow-md transition-transform duration-200',
+            sm ? 'size-4' : 'size-5',
+            checked ? (sm ? 'translate-x-4' : 'translate-x-6') : sm ? 'translate-x-0.5' : 'translate-x-1',
           )}
         />
       </button>

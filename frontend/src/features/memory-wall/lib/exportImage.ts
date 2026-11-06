@@ -1,6 +1,7 @@
 import { formatLength, type LengthUnit } from '@/lib/units'
 import { PLANNER_RULES } from '../constants'
 import type { Scene } from './geometry/scene'
+import { drawingHeight } from './room'
 
 /**
  * Client-side "Download design": clone the live wall <svg>, inline every image as a data URL
@@ -100,6 +101,8 @@ export async function downloadWallPng(
 ): Promise<void> {
   const clone = svg.cloneNode(true) as SVGSVGElement
   const { w: W, h: H } = scene.wall
+  // The drawing is the wall plus the floor band beneath it (see WallSvg / lib/room.ts).
+  const VH = drawingHeight(H)
 
   // Static output: drop interactive-only bits; CSS transforms (used for animation) → attributes.
   clone.querySelectorAll('[data-export="exclude"]').forEach((el) => el.remove())
@@ -142,16 +145,18 @@ export async function downloadWallPng(
     clone.append(g)
   }
 
+  // Bottom-right corner of the floor band, clear of the centred sofa.
   const caption = svgText(
-    W / 2,
-    H - H * 0.015,
+    W * 0.985,
+    VH - (VH - H) * 0.3,
     `${options.title} · Moonlight Photo Studio`,
-    Math.max(W, H) / 80,
+    Math.max(W, H) / 90,
+    'end',
   )
   caption.setAttribute('fill', '#4a3329')
   clone.append(caption)
 
-  const height = Math.round((EXPORT_WIDTH_PX * H) / W)
+  const height = Math.round((EXPORT_WIDTH_PX * VH) / W)
   clone.setAttribute('xmlns', SVG_NS)
   clone.setAttribute('width', String(EXPORT_WIDTH_PX))
   clone.setAttribute('height', String(height))

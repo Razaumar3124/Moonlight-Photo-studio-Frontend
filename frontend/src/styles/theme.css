@@ -48,6 +48,30 @@
      the mockup's cream-300 border (1.3:1) is too faint to identify the field. */
   --color-cream-600: #9f8b77;
 
+  /* ---------- Gallery Atelier (Memory Wall planner) ----------
+     Quiet chrome around the art: ivory surfaces, warm charcoal type, champagne detail, and a
+     dark "stage" behind the wall. Red stays reserved for the primary action and the selection.
+     See docs/DESIGN_SYSTEM.md → "Planner palette". */
+  --color-ivory-50: #fffdf9; /* rails, popovers */
+  --color-ivory-100: #f7f1e8; /* app background */
+  --color-ivory-200: #efe7db; /* tracks, resting controls */
+  --color-ivory-300: #e3d8c8; /* hairlines (decorative) */
+
+  --color-champagne-200: #eadbc0;
+  --color-champagne-300: #d9c29a; /* selected swatch ring, numerals on dark */
+  --color-champagne-400: #c4a574; /* AI sparkle */
+
+  --color-charcoal-900: #1f1b19; /* headings, selected thumbs, switch on */
+  --color-charcoal-800: #2c2724;
+  --color-charcoal-700: #3d3633; /* body, labels */
+  --color-charcoal-500: #6f6560; /* helper text (≥ 12px, 5.3:1 on ivory-50) */
+  --color-charcoal-300: #aba19a; /* disabled */
+
+  --color-stage-950: #140f0c;
+  --color-stage-900: #241b17; /* wall stage */
+  --color-stage-800: #33271f;
+  --color-stage-700: #4a3a30;
+
   /* ---------- Semantic ---------- */
   --color-success-500: #2f8f4e; /* "New" badge */
   --color-success-50: #e8f5ec;
@@ -60,6 +84,10 @@
   --shadow-card: 0 1px 2px rgb(74 10 13 / 0.04), 0 4px 16px rgb(74 10 13 / 0.06);
   --shadow-field: 0 1px 2px rgb(74 10 13 / 0.05);
   --shadow-button: 0 2px 8px rgb(155 17 24 / 0.25);
+  --shadow-primary: 0 6px 16px -6px rgb(155 17 24 / 0.55);
+  --shadow-pop: 0 14px 36px -10px rgb(31 27 25 / 0.32), 0 2px 6px rgb(31 27 25 / 0.08);
+  --shadow-wall: 0 28px 70px -24px rgb(0 0 0 / 0.75), 0 8px 24px -12px rgb(0 0 0 / 0.5);
+  --shadow-thumb: 0 1px 2px rgb(31 27 25 / 0.12), 0 1px 1px rgb(31 27 25 / 0.06);
 
   /* ---------- Motion ---------- */
   /* Delayed fade so fast lazy-route loads don't flash a spinner. */
@@ -78,6 +106,25 @@
     from {
       opacity: 0;
       transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  /* Generate Layout: light sweep across the wall while the best layout is chosen. */
+  @keyframes shimmer {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(100%);
+    }
+  }
+  @keyframes pop-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px) scale(0.98);
     }
     to {
       opacity: 1;

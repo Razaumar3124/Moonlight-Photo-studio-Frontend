@@ -1,131 +1,235 @@
-import { Bookmark, ChevronDown, LogOut, UserRound } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  ArrowRight,
+  Bookmark,
+  ChevronDown,
+  FolderHeart,
+  LayoutTemplate,
+  LogOut,
+  MoreHorizontal,
+  UserRound,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Logo } from '@/components/brand/Logo'
+import { Button } from '@/components/ui/Button'
+import { Menu } from '@/components/ui/Menu'
 import { ROUTES } from '@/config/routes'
 import { cn } from '@/lib/cn'
+import type { LengthUnit } from '@/lib/units'
 import { tokenStorage } from '@/services/tokenStorage'
+import type { Scene } from '../lib/geometry/scene'
+import { FitStatus } from './FitStatus'
 
-/** Logo · "Memory Wall Planner" · Profile menu. Sticky, slightly translucent. */
-export function PlannerHeader({ onOpenSaved }: { onOpenSaved: () => void }) {
+interface PlannerHeaderProps {
+  title: string
+  scene: Scene
+  unit: LengthUnit
+  sofaOn: boolean
+  onGenerate: () => void
+  onHideSofa: () => void
+  onOpenTemplates: () => void
+  onOpenDesigns: () => void
+  onSave: () => void
+  onQuote: () => void
+  /** Phones show Request a Quote in the bottom bar instead. */
+  showQuote: boolean
+}
+
+/**
+ * Studio header: brand · project title + fit status · project actions · profile.
+ * Opaque and compact (`--pl-header`); actions collapse into "More" on narrower screens.
+ */
+export function PlannerHeader({
+  title,
+  scene,
+  unit,
+  sofaOn,
+  onGenerate,
+  onHideSofa,
+  onOpenTemplates,
+  onOpenDesigns,
+  onSave,
+  onQuote,
+  showQuote,
+}: PlannerHeaderProps) {
   return (
-    <header className="sticky top-0 z-30 border-b border-cream-300 bg-cream-50/90 backdrop-blur">
-      <div className="mx-auto flex max-w-[100rem] items-center gap-3 px-4 py-2.5 sm:gap-5 sm:px-6 lg:px-8">
-        <Logo className="w-28 shrink-0 sm:w-40" />
-        <span aria-hidden className="hidden h-10 w-px bg-cream-400 sm:block" />
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate font-display text-lg font-semibold text-ink-900 sm:text-2xl">
+    <header className="relative z-30 flex h-(--pl-header) shrink-0 items-center gap-2.5 border-b border-ivory-300 bg-ivory-50 px-3 sm:gap-4 sm:px-4">
+      <Logo variant="mark" className="w-6 shrink-0 sm:hidden" />
+      <Logo className="hidden w-[6.75rem] shrink-0 sm:block dense:w-24" />
+      <span aria-hidden className="hidden h-7 w-px shrink-0 bg-ivory-300 sm:block" />
+
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        <div className="min-w-0">
+          <h1 className="truncate font-sans text-[0.625rem] leading-none font-semibold tracking-[0.2em] whitespace-nowrap text-gold-600 uppercase max-lg:sr-only">
             Memory Wall Planner
           </h1>
-          <p className="hidden truncate text-sm tracking-wide text-ink-500 sm:block">
-            Design a wall full of memories.
+          <p
+            className="truncate font-display text-base leading-tight font-semibold text-charcoal-900 sm:text-lg lg:mt-1"
+            title={title}
+          >
+            {title}
           </p>
         </div>
-        <ProfileMenu onOpenSaved={onOpenSaved} />
+        <FitStatus
+          scene={scene}
+          unit={unit}
+          sofaOn={sofaOn}
+          onGenerate={onGenerate}
+          onHideSofa={onHideSofa}
+          className="shrink-0"
+        />
       </div>
+
+      <nav aria-label="Project" className="flex shrink-0 items-center gap-1.5">
+        <div className="hidden items-center gap-0.5 lg:flex">
+          <HeaderLink icon={<LayoutTemplate aria-hidden />} onClick={onOpenTemplates}>
+            Templates
+          </HeaderLink>
+          <HeaderLink icon={<FolderHeart aria-hidden />} onClick={onOpenDesigns}>
+            My Designs
+          </HeaderLink>
+        </div>
+        <Menu
+          label="Project actions"
+          iconOnly
+          tooltip="bottom"
+          className="lg:hidden"
+          trigger={<MoreHorizontal aria-hidden className="size-4" />}
+          triggerClassName="grid size-8 place-items-center rounded-lg text-charcoal-700 transition-colors hover:bg-ivory-200 aria-expanded:bg-ivory-200"
+          sections={[
+            {
+              id: 'project',
+              items: [
+                {
+                  id: 'templates',
+                  icon: <LayoutTemplate />,
+                  label: 'All templates',
+                  onSelect: onOpenTemplates,
+                },
+                { id: 'designs', icon: <FolderHeart />, label: 'My Designs', onSelect: onOpenDesigns },
+                ...(showQuote
+                  ? []
+                  : [{ id: 'save', icon: <Bookmark />, label: 'Save design', onSelect: onSave }]),
+              ],
+            },
+          ]}
+        />
+        <Button
+          variant="quiet"
+          size="sm"
+          leftIcon={<Bookmark aria-hidden />}
+          onClick={onSave}
+          className={cn(!showQuote && 'hidden', 'max-sm:px-2')}
+          aria-label="Save design"
+        >
+          <span className="max-sm:hidden">Save</span>
+        </Button>
+        {showQuote && <RequestQuoteButton onClick={onQuote} className="h-8 px-3" />}
+        <ProfileMenu onOpenDesigns={onOpenDesigns} />
+      </nav>
     </header>
   )
 }
 
-/** Menu button pattern: Esc / outside click close, arrow keys move between items. */
-function ProfileMenu({ onOpenSaved }: { onOpenSaved: () => void }) {
-  const [open, setOpen] = useState(false)
-  const menuId = useId()
-  const rootRef = useRef<HTMLDivElement>(null)
-  const buttonRef = useRef<HTMLButtonElement>(null)
-  const navigate = useNavigate()
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', onDown)
-    rootRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
-    return () => document.removeEventListener('pointerdown', onDown)
-  }, [open])
-
-  const close = () => {
-    setOpen(false)
-    buttonRef.current?.focus()
-  }
-
-  const onMenuKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = [...(rootRef.current?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])]
-    const i = items.indexOf(document.activeElement as HTMLElement)
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      close()
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      e.preventDefault()
-      const next = (i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length
-      items[next]?.focus()
-    } else if (e.key === 'Tab') {
-      setOpen(false)
-    }
-  }
-
-  const item =
-    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm text-ink-700 hover:bg-cream-200 focus:bg-cream-200 focus:outline-none [&>svg]:size-4 [&>svg]:text-brand-600'
-
+function HeaderLink({
+  icon,
+  onClick,
+  children,
+}: {
+  icon: React.ReactNode
+  onClick: () => void
+  children: React.ReactNode
+}) {
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        ref={buttonRef}
-        type="button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-controls={menuId}
-        onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-2 rounded-full border border-cream-300 bg-white py-1 pr-2 pl-1 shadow-field transition-colors hover:border-cream-400 sm:pr-3"
-      >
-        <span className="grid size-8 place-items-center rounded-full bg-ink-700 text-cream-50">
-          <UserRound aria-hidden className="size-4.5" />
-        </span>
-        <span className="hidden text-sm font-semibold text-ink-900 sm:inline">Profile</span>
-        <ChevronDown
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[0.8125rem] font-medium text-charcoal-700 transition-colors hover:bg-ivory-200 hover:text-charcoal-900 [&>svg]:size-4 [&>svg]:text-charcoal-500"
+    >
+      {icon}
+      {children}
+    </button>
+  )
+}
+
+/** Charcoal "Request a Quote" (the conversion action; crimson stays with Generate Layout). */
+export function RequestQuoteButton({
+  onClick,
+  className,
+  short = false,
+}: {
+  onClick: () => void
+  className?: string
+  /** Visible label "Quote" (phone bottom bar); the accessible name stays "Request a quote". */
+  short?: boolean
+}) {
+  return (
+    <Button
+      variant="dark"
+      size="sm"
+      onClick={onClick}
+      className={cn('group', className)}
+      aria-label="Request a quote"
+    >
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        {short ? (
+          'Quote'
+        ) : (
+          <>
+            <span className="max-md:hidden">Request a Quote</span>
+            <span className="md:hidden">Quote</span>
+          </>
+        )}
+        <ArrowRight
           aria-hidden
-          className={cn('size-4 text-ink-500 transition-transform', open && 'rotate-180')}
+          className="size-4 text-champagne-300 transition-transform duration-200 group-hover:translate-x-0.5"
         />
-        <span className="sr-only sm:hidden">Profile</span>
-      </button>
-      {open && (
-        <div
-          id={menuId}
-          role="menu"
-          tabIndex={-1}
-          aria-label="Profile"
-          onKeyDown={onMenuKey}
-          className="absolute top-full right-0 z-50 mt-2 w-60 animate-[toast-in_160ms_ease-out] rounded-xl border border-cream-300 bg-cream-50 p-1.5 shadow-2xl"
-        >
-          <p className="px-3 pt-2 pb-2.5 text-xs text-ink-500">
-            Signed in · <span className="font-medium text-ink-700">Preview account</span>
-          </p>
-          <button
-            type="button"
-            role="menuitem"
-            className={item}
-            onClick={() => {
-              setOpen(false)
-              onOpenSaved()
-            }}
-          >
-            <Bookmark aria-hidden /> My Saved Templates
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className={item}
-            onClick={() => {
-              // Local sign-out now; Phase 5 also calls POST /auth/logout first.
-              tokenStorage.clear()
-              navigate(ROUTES.login, { replace: true })
-            }}
-          >
-            <LogOut aria-hidden /> Sign out
-          </button>
-        </div>
-      )}
-    </div>
+      </span>
+    </Button>
+  )
+}
+
+/** Avatar menu: My Designs and Sign out. */
+function ProfileMenu({ onOpenDesigns }: { onOpenDesigns: () => void }) {
+  const navigate = useNavigate()
+  return (
+    <Menu
+      label="Profile"
+      iconOnly
+      trigger={
+        <>
+          <span className="grid size-7 place-items-center rounded-full bg-charcoal-800 text-ivory-50">
+            <UserRound aria-hidden className="size-4" />
+          </span>
+          <ChevronDown
+            aria-hidden
+            className="size-3.5 text-charcoal-500 transition-transform group-aria-expanded/ib:rotate-180 max-sm:hidden"
+          />
+        </>
+      }
+      triggerClassName="flex items-center gap-1 rounded-full p-0.5 transition-colors hover:bg-ivory-200 aria-expanded:bg-ivory-200 sm:pr-1.5"
+      header={
+        <p className="px-2.5 pt-1.5 pb-2 text-xs text-charcoal-500">
+          Signed in · <span className="font-medium text-charcoal-700">Preview account</span>
+        </p>
+      }
+      sections={[
+        {
+          id: 'account',
+          items: [
+            { id: 'designs', icon: <FolderHeart />, label: 'My Designs', onSelect: onOpenDesigns },
+            {
+              id: 'signout',
+              icon: <LogOut />,
+              label: 'Sign out',
+              onSelect: () => {
+                // Local sign-out now; Phase 5 also calls POST /auth/logout first.
+                tokenStorage.clear()
+                navigate(ROUTES.login, { replace: true })
+              },
+            },
+          ],
+        },
+      ]}
+    />
   )
 }

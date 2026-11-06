@@ -38,6 +38,28 @@ stays quiet.
 Contrast: `brand-600` on `cream-100` and white on `brand-600` both pass WCAG AA for body text.
 Only use `ink-500` for text 14px or larger.
 
+### Planner palette ("Gallery Atelier", 2026-11-07)
+
+The Memory Wall planner uses quieter chrome, so the photos carry the colour. Tokens in `theme.css`:
+
+| Token                           | Hex                                           | Used for                                                                             |
+| ------------------------------- | --------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `ivory-50/100/200/300`          | `#FFFDF9` / `#F7F1E8` / `#EFE7DB` / `#E3D8C8` | Rails & popovers / app background / control tracks / hairlines                       |
+| `charcoal-900/800/700/500/300`  | `#1F1B19` … `#ABA19A`                         | Headings, selected thumbs, "on" switches, Request a Quote / body / helper / disabled |
+| `champagne-300/400`             | `#D9C29A` / `#C4A574`                         | Selected swatch ring, AI sparkle, hover outline on wall frames                       |
+| `stage-950/900/800/700`         | `#140F0C` … `#4A3A30`                         | The dark, softly lit stage behind the wall                                           |
+| `shadow-primary/pop/wall/thumb` | —                                             | Crimson CTA glow / menus & popovers / the wall on the stage / segmented thumbs       |
+
+**In the planner, red is a signal, not a theme.** Solid crimson only for **Generate Layout** (and the
+Download button inside fullscreen). Crimson outline for the **selected frame** (wall, navigator,
+badge) and the active AI preset. Crimson text for links and Remove. Segmented controls, switches,
+steppers, tabs and unit chips are neutral (white thumb on linen, charcoal "on"). Request a Quote
+is charcoal (`Button variant="dark"`).
+
+**Planner type roles:** Playfair Display only for the project title and the section titles
+(17px). DM Sans for everything else, **including all buttons**. The section numerals ("01", "02",
+"03") are DM Sans 11px, `tracking-[0.18em]`, `gold-600`. Labels are 13px semibold `charcoal-700`.
+
 ## Typography
 
 | Role            | Font             | Tailwind                             | Sizes (mobile → desktop)        |
@@ -103,10 +125,17 @@ line-height that precedes a font-size utility.
 
 - **Auth** (`features/auth/components/`): `AuthLayout` (hero image + form split),
   `AuthHero`, `AuthHeader` (logo + EST. + title + subtitle), `GoogleButton`, `LoginForm`, `RegisterForm`.
-- **Memory wall** (`features/memory-wall/components/`): `PlannerHeader`, `WallConfigPanel`,
-  `LayoutPanel`, `AiLayoutAssistant`, `LayoutCanvas` (wall preview with dimension guides),
-  `FrameSelectionPanel`, `PreviewSettingsPanel`, `ActionBar` (Download / Fullscreen /
-  Templates / Saved / Request a Quote).
+- **Memory wall** (`features/memory-wall/components/`): `PlannerHeader` (+ `FitStatus`,
+  `RequestQuoteButton`), `Rail` / `RailSection`, `WallSection`, `ArrangementSection`,
+  `AiLayoutsSection`, `Stage` (+ `GenerateCluster`: Regenerate, Redesign, Generate Layout), `WallCanvas` /
+  `WallSvg`, `ViewToggles`, `FrameInspector` (navigator + Photo / Frame / Mount tabs),
+  `SidePanel` / `MobileSheet` (`ControlPanels.tsx`), `MobileActionBar`, and the dialogs.
+- **Shared primitives added 2026-11-07:** `Menu` (menu button with item, radio and checkbox items),
+  `Tabs` / `TabPanel`, `Tooltip` (via `IconButton tooltip`), `useDismiss`. Planner sizes on the
+  existing primitives: `Button` `sm`/`compact` + `dark`/`quiet`/`stage`, `SegmentedControl`
+  `appearance="neutral" | "stage"` + `size="xs"`, `Switch size="sm"`, `NumberStepper size="sm"`,
+  `SwatchPicker size="sm"`, `Select compact`, `IconButton` `quiet`/`stage` + `shape="square"`.
+  The defaults are unchanged, so the auth pages render as before.
 
 ## Iconography
 
@@ -117,8 +146,9 @@ download, expand). Use **one** consistent outline set. We recommend `lucide-reac
 
 ## Motion
 
-Subtle only: 150–200ms colour/shadow transitions on hover and focus, and a fade or slide for the
-canvas carousel. All motion is disabled under `prefers-reduced-motion` (handled globally in
+Subtle only: 150–200ms colour/shadow transitions on hover and focus, a 150ms `pop-in` for menus and
+popovers, frames gliding to new positions (480ms), and a light `shimmer` across the wall while
+Generate Layout works. All motion is disabled under `prefers-reduced-motion` (handled globally in
 `index.css`).
 
 ## Contrast (verified 2026-11-05)

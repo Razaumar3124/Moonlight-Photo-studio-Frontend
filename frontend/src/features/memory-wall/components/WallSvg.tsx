@@ -1,7 +1,7 @@
-import { memo, useId, type KeyboardEvent, type Ref } from 'react'
+import { memo, useId, useMemo, type KeyboardEvent, type Ref } from 'react'
 import { memoryWallAssets } from '@/assets/memoryWall'
-import { ROOM_PHOTO, ROOM_PHOTO_IN } from '../constants'
 import type { Scene, SceneFrame } from '../lib/geometry/scene'
+import { drawingHeight, FLOOR_BAND_IN, FLOOR_TILE, roomLayout, SKIRTING_IN, type RoomItem } from '../lib/room'
 
 interface WallSvgProps {
   scene: Scene
@@ -11,7 +11,7 @@ interface WallSvgProps {
   onSelect?: (index: number) => void
   /** Animate frames to new positions when the layout recalculates. */
   animate?: boolean
-  /** Lighter rendering for thumbnails (no shadows/sheen). */
+  /** Lighter rendering for thumbnails (no shadows/sheen/decor). */
   detail?: 'full' | 'low'
   svgRef?: Ref<SVGSVGElement>
   className?: string
@@ -19,14 +19,15 @@ interface WallSvgProps {
   title?: string
 }
 
-/** Crop the window/curtain off the left of the room photo (it would float mid-wall otherwise). */
-const ROOM_CROP_LEFT_PX = 150
-const roomPxPerIn = (ROOM_PHOTO.sofaRightPx - ROOM_PHOTO.sofaLeftPx) / ROOM_PHOTO.sofaWidthIn
+const strip = memoryWallAssets.room.floorStrip
 
 /**
- * Pure SVG rendering of a Scene. The viewBox is the wall in inches, so every rect from the
- * geometry engine is drawn 1:1 and the browser handles scaling. Only presentation attributes
- * (no CSS classes) are used for visuals, so a clone of this SVG can be exported as a PNG.
+ * Pure SVG rendering of a Scene. The viewBox is the wall in inches plus a strip of floor below
+ * it, so every rect from the geometry engine is drawn 1:1 and the browser handles scaling. Only
+ * presentation attributes (no CSS classes) carry visuals, so a clone can be exported as a PNG.
+ *
+ * Layers: painted wall + soft window light → skirting/floor strip → lamp glow → frames → room
+ * cut-outs (sofa, lamp, plant), which stand in front of the wall and ignore the pointer.
  */
 function WallSvgImpl({
   scene,
@@ -42,11 +43,11 @@ function WallSvgImpl({
   const uid = useId().replace(/[^a-zA-Z0-9_-]/g, '')
   const id = (name: string) => `${uid}-${name}`
   const { w: W, h: H, paintHex } = scene.wall
+  const VH = drawingHeight(H)
   const full = detail === 'full'
-
-  const photoX = W / 2 - ROOM_PHOTO_IN.sofaCentreX
-  const photoY = H - ROOM_PHOTO_IN.height
-  const cropIn = ROOM_CROP_LEFT_PX / roomPxPerIn
+  const room = useMemo(() => roomLayout(scene), [scene])
+  const decor = full ? room.decor : []
+  const lamp = decor.find((d) => d.kind === 'lamp')
 
   const onKey = (index: number) => (e: KeyboardEvent<SVGGElement>) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -55,10 +56,13 @@ function WallSvgImpl({
     }
   }
 
+  const tile = FLOOR_TILE
+  const floorTop = H - SKIRTING_IN
+
   return (
     <svg
       ref={svgRef}
-      viewBox={`0 0 ${W} ${H}`}
+      viewBox={`0 0 ${W} ${VH}`}
       preserveAspectRatio="xMidYMid meet"
       className={className}
       role={interactive ? 'group' : 'img'}
@@ -66,38 +70,41 @@ function WallSvgImpl({
     >
       <defs>
         <radialGradient id={id('light')} cx="0.16" cy="0.02" r="0.95">
-          <stop offset="0" stopColor="#fff8ec" stopOpacity="0.45" />
-          <stop offset="0.55" stopColor="#fff8ec" stopOpacity="0.08" />
-          <stop offset="1" stopColor="#000" stopOpacity="0.06" />
+          <stop offset="0" stopColor="#fff8ec" stopOpacity="0.42" />
+          <stop offset="0.55" stopColor="#fff8ec" stopOpacity="0.06" />
+          <stop offset="1" stopColor="#000" stopOpacity="0.08" />
         </radialGradient>
-        <linearGradient id={id('fadeV')} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#000" />
-          <stop offset="0.42" stopColor="#fff" />
+        <linearGradient id={id('ceiling')} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#2a1712" stopOpacity="0.1" />
+          <stop offset="1" stopColor="#2a1712" stopOpacity="0" />
         </linearGradient>
-        <linearGradient id={id('fadeH')} x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stopColor="#000" />
-          <stop offset="0.1" stopColor="#fff" />
-          <stop offset="0.9" stopColor="#fff" />
-          <stop offset="1" stopColor="#000" />
+        <linearGradient id={id('floorShade')} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#2a1712" stopOpacity="0.05" />
+          <stop offset="1" stopColor="#1b0f0a" stopOpacity="0.38" />
         </linearGradient>
-        <mask id={id('maskV')} maskUnits="userSpaceOnUse">
-          <rect
-            x={photoX}
-            y={photoY}
-            width={ROOM_PHOTO_IN.width}
-            height={ROOM_PHOTO_IN.height}
-            fill={`url(#${id('fadeV')})`}
-          />
-        </mask>
-        <mask id={id('maskH')} maskUnits="userSpaceOnUse">
-          <rect
-            x={photoX + cropIn}
-            y={photoY}
-            width={ROOM_PHOTO_IN.width - cropIn}
-            height={ROOM_PHOTO_IN.height}
-            fill={`url(#${id('fadeH')})`}
-          />
-        </mask>
+        {/* Floor strip tiled as [tile | mirrored tile], centred on the wall: seamless at any width. */}
+        <pattern
+          id={id('floor')}
+          patternUnits="userSpaceOnUse"
+          x={W / 2 - tile.widthIn}
+          y={floorTop}
+          width={tile.widthIn * 2}
+          height={tile.heightIn}
+        >
+          <FloorTile />
+          <g transform={`translate(${tile.widthIn * 2} 0) scale(-1 1)`}>
+            <FloorTile />
+          </g>
+        </pattern>
+        <radialGradient id={id('contact')}>
+          <stop offset="0" stopColor="#1b0f0a" stopOpacity="0.45" />
+          <stop offset="1" stopColor="#1b0f0a" stopOpacity="0" />
+        </radialGradient>
+        <radialGradient id={id('glow')}>
+          <stop offset="0" stopColor="#ffd9a0" stopOpacity="0.55" />
+          <stop offset="0.6" stopColor="#ffd9a0" stopOpacity="0.12" />
+          <stop offset="1" stopColor="#ffd9a0" stopOpacity="0" />
+        </radialGradient>
         <linearGradient id={id('sheen')} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#fff" stopOpacity="0.28" />
           <stop offset="0.45" stopColor="#fff" stopOpacity="0" />
@@ -111,30 +118,21 @@ function WallSvgImpl({
       {/* Wall */}
       <rect width={W} height={H} fill={paintHex} />
       <rect width={W} height={H} fill={`url(#${id('light')})`} />
+      <rect width={W} height={Math.min(H * 0.16, 24)} fill={`url(#${id('ceiling')})`} />
 
-      {/* Room (84" reference sofa), tinted by the paint colour */}
-      {scene.sofaTopY !== null ? (
-        <g mask={`url(#${id('maskV')})`} style={{ mixBlendMode: 'multiply' }}>
-          <g mask={`url(#${id('maskH')})`}>
-            <svg
-              x={photoX + cropIn}
-              y={photoY}
-              width={ROOM_PHOTO_IN.width - cropIn}
-              height={ROOM_PHOTO_IN.height}
-              viewBox={`${ROOM_CROP_LEFT_PX} 0 ${ROOM_PHOTO.widthPx - ROOM_CROP_LEFT_PX} ${ROOM_PHOTO.heightPx}`}
-              preserveAspectRatio="none"
-            >
-              <image
-                href={memoryWallAssets.roomBackground.src}
-                width={ROOM_PHOTO.widthPx}
-                height={ROOM_PHOTO.heightPx}
-              />
-            </svg>
-          </g>
-        </g>
-      ) : (
-        // Skirting board when there's no furniture
-        <rect x={0} y={H - 4} width={W} height={4} fill="#000" fillOpacity="0.06" />
+      {/* Skirting + floor */}
+      <rect x={0} y={floorTop} width={W} height={VH - floorTop} fill={`url(#${id('floor')})`} />
+      <rect x={0} y={H} width={W} height={FLOOR_BAND_IN} fill={`url(#${id('floorShade')})`} />
+
+      {/* Warm pool of light from the lamp shade, on the wall behind the frames */}
+      {lamp && (
+        <ellipse
+          cx={lamp.rect.x + lamp.rect.w / 2}
+          cy={lamp.rect.y + 6}
+          rx={34}
+          ry={30}
+          fill={`url(#${id('glow')})`}
+        />
       )}
 
       {/* Frames */}
@@ -151,6 +149,54 @@ function WallSvgImpl({
           onKeyDown={onKey(i)}
         />
       ))}
+
+      {/* Room cut-outs stand in front of the wall */}
+      {room.sofa && (
+        <g pointerEvents="none">
+          {[room.sofa, ...decor].map((it) => (
+            <ellipse
+              key={`${it.kind}-shadow`}
+              cx={it.rect.x + it.rect.w / 2}
+              cy={it.rect.y + it.rect.h - 0.4}
+              rx={it.rect.w * 0.56}
+              ry={it.kind === 'sofa' ? 2.4 : 1.6}
+              fill={`url(#${id('contact')})`}
+            />
+          ))}
+          {[room.sofa, ...decor].map((it) => (
+            <RoomCutout key={it.kind} item={it} />
+          ))}
+        </g>
+      )}
+    </svg>
+  )
+}
+
+function FloorTile() {
+  return (
+    <svg
+      width={FLOOR_TILE.widthIn}
+      height={FLOOR_TILE.heightIn}
+      viewBox={FLOOR_TILE.viewBox}
+      preserveAspectRatio="none"
+    >
+      <image href={strip.src} width={strip.width} height={strip.height} preserveAspectRatio="none" />
+    </svg>
+  )
+}
+
+function RoomCutout({ item }: { item: RoomItem }) {
+  const { rect, crop } = item
+  return (
+    <svg
+      x={rect.x}
+      y={rect.y}
+      width={rect.w}
+      height={rect.h}
+      viewBox={`${crop.x} ${crop.y} ${crop.w} ${crop.h}`}
+      preserveAspectRatio="none"
+    >
+      <image href={item.src} width={item.srcWidth} height={item.srcHeight} preserveAspectRatio="none" />
     </svg>
   )
 }
@@ -272,34 +318,62 @@ function FrameShape({
           />
         </g>
       )}
-      {/* Selection + keyboard focus (UI only, never exported) */}
+      {/* Hover, selection and keyboard focus (UI only, never exported) */}
       {interactive && (
         <g data-export="exclude">
+          {!selected && (
+            <rect
+              className="wall-frame-hover"
+              x={-0.8}
+              y={-0.8}
+              width={w + 1.6}
+              height={h + 1.6}
+              rx={0.5}
+              fill="none"
+              stroke="#d9c29a"
+              strokeWidth={2}
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
           <rect
             className="wall-frame-focus"
-            x={-1.4}
-            y={-1.4}
-            width={w + 2.8}
-            height={h + 2.8}
-            rx={0.6}
+            x={-1.6}
+            y={-1.6}
+            width={w + 3.2}
+            height={h + 3.2}
+            rx={0.7}
             fill="none"
-            stroke="#2a1712"
+            stroke="#1f1b19"
             strokeWidth={2}
             vectorEffect="non-scaling-stroke"
             strokeDasharray="4 3"
           />
           {selected && (
-            <rect
-              x={-0.9}
-              y={-0.9}
-              width={w + 1.8}
-              height={h + 1.8}
-              rx={0.5}
-              fill="none"
-              stroke="#9b1118"
-              strokeWidth={3}
-              vectorEffect="non-scaling-stroke"
-            />
+            <>
+              <rect
+                x={-1}
+                y={-1}
+                width={w + 2}
+                height={h + 2}
+                rx={0.6}
+                fill="none"
+                stroke="#9b1118"
+                strokeOpacity="0.28"
+                strokeWidth={9}
+                vectorEffect="non-scaling-stroke"
+              />
+              <rect
+                x={-1}
+                y={-1}
+                width={w + 2}
+                height={h + 2}
+                rx={0.6}
+                fill="none"
+                stroke="#9b1118"
+                strokeWidth={2.5}
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
           )}
         </g>
       )}

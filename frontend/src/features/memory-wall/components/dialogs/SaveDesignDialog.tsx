@@ -23,7 +23,7 @@ export function SaveDesignDialog({ open, onClose, defaultTitle, hasUploads, onSa
       onClose={onClose}
       size="sm"
       title="Save design"
-      description="Find it later in My Saved Templates."
+      description="Find it later in My Designs."
     >
       {/* Keyed form: fresh field each time the dialog opens */}
       <SaveForm
