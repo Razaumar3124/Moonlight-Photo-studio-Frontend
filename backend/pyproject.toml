@@ -1,0 +1,69 @@
+[project]
+name = "moonlight-studio-backend"
+version = "0.1.0"
+description = "FastAPI asynchronous backend for SAF Studio"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    # pymongo 4.19 dropped the `srv` extra; dnspython (below) covers mongodb+srv URIs.
+    "pymongo>=4.9.0",
+    "dnspython>=2.6.0",
+    "certifi>=2024.0.0",
+    "pydantic[email]>=2.9.0",  # EmailStr in app/schemas needs email-validator
+    "pydantic-settings>=2.6.0",
+    "argon2-cffi>=23.1.0",
+    "pyjwt[crypto]>=2.9.0",
+    "google-auth[requests]>=2.35.0",  # google_auth_service uses the requests transport
+    "boto3>=1.35.0",
+    "pillow>=11.0.0",
+    "python-multipart>=0.0.12",
+    # Imported at runtime (health check, Groq, Resend email, quote report).
+    "httpx>=0.27.0",
+    "jinja2>=3.1.0",
+]
+
+# uv installs the "dev" group by default on `uv sync`; use `uv sync --no-dev` for production.
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+]
+
+# This is an application, not a distributable library: uv installs dependencies
+# only and does not try to build a wheel (the code lives in `app/`, not in a
+# `moonlight_studio_backend/` package, which is what broke `uv sync`).
+[tool.uv]
+package = false
+# The repo lives in a OneDrive-synced folder, where Windows rejects hardlinks
+# from uv's cache ("cloud operation ... incompatible hardlinks", os error 396).
+link-mode = "copy"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+]
