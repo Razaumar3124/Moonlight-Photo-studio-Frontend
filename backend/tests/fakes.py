@@ -118,6 +118,14 @@ class FakeSessionRepository:
         doc.update(is_revoked=True, revoked_reason="rotated", revoked_at=now)
         return before
 
+    async def family_has_active_token(self, family_id: str, now: datetime) -> bool:
+        return any(
+            doc.get("family_id") == family_id
+            and not doc.get("is_revoked")
+            and self._aware(doc["expires_at"]) > now
+            for doc in self.refresh_tokens.values()
+        )
+
     async def set_replaced_by(self, token_id: str, successor_id: str) -> None:
         for doc in self.refresh_tokens.values():
             if str(doc["_id"]) == str(token_id):

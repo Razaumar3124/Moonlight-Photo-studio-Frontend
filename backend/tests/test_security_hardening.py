@@ -319,6 +319,37 @@ async def test_replay_after_grace_window_revokes_the_whole_family(
     assert all(d["is_revoked"] for d in fake_session_repo.refresh_tokens.values())
 
 
+async def test_logout_ends_the_grace_window_of_a_just_rotated_cookie(client: AsyncClient):
+    """The reuse grace is for rotation races only: once the session is revoked it must be dead."""
+    session = await _register(client, "graceout@example.com", "+919800000031")
+    first = await _refresh(client, session["refresh"])
+    successor = first.cookies["refresh_token"]
+
+    client.cookies.clear()
+    out = await client.post(f"{API}/auth/logout", headers={"Cookie": f"refresh_token={successor}"})
+    assert out.status_code == 204
+
+    # Still inside the 30 s grace of the first rotation, yet the family was logged out.
+    replay = await _refresh(client, session["refresh"])
+    assert replay.status_code == 401
+    assert replay.json()["error"]["code"] == "TOKEN_REVOKED"
+    assert (await _refresh(client, successor)).status_code == 401
+
+
+async def test_password_reset_revocation_ends_the_grace_window_too(
+    client: AsyncClient, fake_session_repo: FakeSessionRepository
+):
+    session = await _register(client, "gracereset@example.com", "+919800000032")
+    await _refresh(client, session["refresh"])  # rotate: the original is now inside its grace
+    user_id = next(iter(fake_session_repo.refresh_tokens.values()))["user_id"]
+
+    await fake_session_repo.revoke_all_user_tokens(str(user_id), reason="password_reset")
+
+    replay = await _refresh(client, session["refresh"])
+    assert replay.status_code == 401
+    assert replay.json()["error"]["code"] == "TOKEN_REVOKED"
+
+
 async def test_logged_out_token_cannot_refresh(client: AsyncClient):
     session = await _register(client, "logout@example.com", "+919800000011")
     client.cookies.clear()

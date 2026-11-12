@@ -94,6 +94,19 @@ class SessionRepository:
         )
         return self._doc_to_refresh_token(doc) if doc else None
 
+    async def family_has_active_token(self, family_id: str, now: datetime) -> bool:
+        """True while some token of the family is still usable (not revoked, not expired).
+
+        A family with none was ended by logout, a password reset or a reuse alarm.
+        """
+        return (
+            await self.refresh_tokens.count_documents(
+                {"family_id": family_id, "is_revoked": False, "expires_at": {"$gt": now}},
+                limit=1,
+            )
+            > 0
+        )
+
     async def set_replaced_by(self, token_id: str, successor_id: str) -> None:
         """Link a rotated token to its successor (audit trail)."""
         if ObjectId.is_valid(token_id) and ObjectId.is_valid(successor_id):

@@ -153,6 +153,9 @@ class TokenService:
             existing.revoked_reason == "rotated"
             and existing.revoked_at is not None
             and now - _aware(existing.revoked_at) <= grace
+            # The grace is only for a rotation race. If the session was ended meanwhile (logout,
+            # password reset), the retired cookie must not mint a new access token.
+            and await self.session_repo.family_has_active_token(existing.family_id, now)
         ):
             user = await self.user_repo.get_by_id(existing.user_id)
             if not user or not user.is_active:
