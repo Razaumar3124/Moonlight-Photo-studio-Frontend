@@ -5,7 +5,8 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from app.models.quote import QuoteInDB
+from app.models.quote import QuoteFrameSnapshot, QuoteInDB
+from app.modules import catalog
 from app.schemas.quote import QuoteFrameSummaryOut, QuoteShareResponse
 from app.services.whatsapp_service import WhatsAppService
 
@@ -45,40 +46,62 @@ class QuoteReportService:
             return f"{local[0]}*@{domain}"
         return f"{local[0]}••••{local[-1]}@{domain}"
 
+    @staticmethod
+    def _opening(frame: QuoteFrameSnapshot) -> tuple[float, float] | None:
+        """Photo opening as hung; derived from the size ID for quotes stored before Phase 3."""
+        if frame.opening_width_inches and frame.opening_height_inches:
+            return frame.opening_width_inches, frame.opening_height_inches
+        size = catalog.get_frame_size(frame.size_id)
+        if size:
+            return size.oriented(frame.orientation)
+        parts = frame.size_id.lower().replace("×", "x").replace(" ", "").split("x")
+        try:
+            w, h = (float(parts[0]), float(parts[1])) if len(parts) == 2 else (0.0, 0.0)
+        except ValueError:
+            return None
+        if w <= 0 or h <= 0:
+            return None
+        return (max(w, h), min(w, h)) if frame.orientation == "landscape" else (w, h)
+
     def build_frame_spec_list(self, quote: QuoteInDB) -> list[QuoteFrameSummaryOut]:
         """Convert QuoteFrameSnapshot items into customer-facing specification summaries."""
         specs = []
         for f in quote.frames:
-            # Opening label
-            size_clean = f.size_id.replace("x", " × ").replace("X", " × ")
-            dim_str = f"{f.width_inches:g}″ × {f.height_inches:g}″"
+            opening = self._opening(f)
+            size_str = (
+                f"{opening[0]:g} × {opening[1]:g} in" if opening else catalog.humanize_id(f.size_id)
+            )
+            dim_str = f"{f.width_inches:g} × {f.height_inches:g} in"
 
-            # Finish label
-            finish_label = f.finish_name or self.whatsapp_service.FINISH_LABELS.get(
-                f.finish_id, f.finish_id.replace("-", " ").title()
+            # Catalog label first; older quotes keep whatever label they stored.
+            finish = catalog.get_finish(f.finish_id)
+            finish_label = (
+                finish.label if finish else f.finish_name or catalog.finish_label(f.finish_id)
             )
 
-            # Mount label
             if f.mount_enabled and f.mount_margin_inches > 0:
-                cname = f.mount_color_name or "Museum White"
-                mount_str = f"{cname} ({f.mount_margin_inches:g}″ border)"
+                colour = (
+                    catalog.mount_colour_label(f.mount_color_id)
+                    or catalog.mount_colour_label(f.mount_color_name)
+                    or catalog.MOUNT_COLOURS[0].label
+                )
+                mount_str = f"{colour} ({f.mount_margin_inches:g} in border)"
             else:
-                mount_str = "No Mount (Full Bleed)"
+                mount_str = "No mount"
 
-            # Photo label
             if f.photo_name:
                 photo_str = f.photo_name
             elif f.photo_kind == "upload":
-                photo_str = "Customer Photograph"
+                photo_str = "Customer photograph"
             elif f.photo_kind == "sample":
-                photo_str = f"Sample Artwork ({f.sample_id or 'Gallery'})"
+                photo_str = f"Sample photograph ({f.sample_id or 'gallery'})"
             else:
                 photo_str = "To be provided"
 
             specs.append(
                 QuoteFrameSummaryOut(
                     number=f.frame_number,
-                    size=f"{size_clean} in",
+                    size=size_str,
                     dimensions=dim_str,
                     orientation=f.orientation.title(),
                     finish=finish_label,
@@ -92,14 +115,12 @@ class QuoteReportService:
         """Render complete HTML design report with Jinja2 autoescaping."""
         template = self.env.get_template("quote_report.html")
 
-        # Dimensions label
-        unit = (
-            "inches"
-            if quote.wall.display_unit in ("in", "inch", "inches")
-            else quote.wall.display_unit
+        wall_dims = catalog.format_wall_size(
+            quote.wall.width_inches, quote.wall.height_inches, quote.wall.display_unit
         )
-        wall_dims = f"{quote.wall.width_inches:g} × {quote.wall.height_inches:g} {unit}"
-        wall_inches_subtext = f"{quote.wall.width_inches:g}″ W × {quote.wall.height_inches:g}″ H"
+        wall_inches_subtext = catalog.format_wall_size(
+            quote.wall.width_inches, quote.wall.height_inches, "in"
+        )
 
         # Arrangement style
         style_label = self.whatsapp_service.format_style_label(quote.layout_style)
@@ -132,12 +153,9 @@ class QuoteReportService:
 
     def build_share_response(self, quote: QuoteInDB, preview_url: str) -> QuoteShareResponse:
         """Construct read-only JSON model for API consumers of the shared report."""
-        unit = (
-            "inches"
-            if quote.wall.display_unit in ("in", "inch", "inches")
-            else quote.wall.display_unit
+        wall_dims = catalog.format_wall_size(
+            quote.wall.width_inches, quote.wall.height_inches, quote.wall.display_unit
         )
-        wall_dims = f"{quote.wall.width_inches:g} × {quote.wall.height_inches:g} {unit}"
         style_label = self.whatsapp_service.format_style_label(quote.layout_style)
         finish_ids = [f.finish_id for f in quote.frames]
         finish_summary = self.whatsapp_service.format_finish_summary(finish_ids)

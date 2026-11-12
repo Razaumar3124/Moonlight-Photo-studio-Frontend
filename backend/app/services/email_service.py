@@ -27,93 +27,67 @@ class EmailDeliveryException(AppException):
 
 
 def render_otp_email_html(otp_code: str, expiry_minutes: int = 10) -> str:
-    """Render the branded HTML email for Moonlight Photo Studio password recovery."""
+    """Render the branded HTML email for Moonlight Photo Studio password recovery.
+
+    Moonlight palette (docs/DESIGN_SYSTEM.md): cream paper, crimson, fine gold rules, serif
+    heading. Table layout with inline styles and system fonts, so it renders the same in
+    mail clients that strip <style> blocks or block remote content.
+    """
+    serif = "Georgia, 'Times New Roman', serif"
+    sans = "-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
+    year = datetime.now(UTC).year
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your Moonlight Photo Studio Verification Code</title>
-  <style>
-    body {{
-      margin: 0; padding: 0; background-color: #0F0F11;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      color: #E5E5E7;
-    }}
-    .wrapper {{
-      width: 100%; max-width: 560px; margin: 40px auto;
-      background-color: #1A1A1E; border-radius: 12px;
-      border: 1px solid #2C2C32; overflow: hidden;
-    }}
-    .header {{
-      padding: 32px 40px; text-align: center;
-      border-bottom: 1px solid #2C2C32;
-    }}
-    .brand-title {{
-      font-size: 20px; font-weight: 600; letter-spacing: 2px;
-      color: #FFFFFF; text-transform: uppercase; margin: 0;
-    }}
-    .brand-subtitle {{
-      font-size: 11px; letter-spacing: 1.5px;
-      color: #C5A880; text-transform: uppercase; margin-top: 6px;
-    }}
-    .content {{ padding: 40px; text-align: center; }}
-    .title {{ font-size: 22px; font-weight: 500; color: #FFFFFF; margin: 0 0 12px; }}
-    .description {{ font-size: 14px; line-height: 22px; color: #A1A1AA; margin: 0 0 32px; }}
-    .otp-container {{
-      display: inline-block; background-color: #24242A;
-      border: 1px solid #3F3F46; border-radius: 8px;
-      padding: 16px 36px; margin-bottom: 32px;
-    }}
-    .otp-code {{
-      font-family: 'SF Mono', Monaco, Consolas, monospace;
-      font-size: 36px; font-weight: 700; letter-spacing: 8px;
-      color: #E4C89F; margin: 0;
-    }}
-    .expiry-note {{ font-size: 13px; color: #71717A; margin-bottom: 24px; }}
-    .security-callout {{
-      background-color: #202026; border-left: 3px solid #C5A880;
-      padding: 14px 18px; text-align: left;
-      border-radius: 0 6px 6px 0; margin-bottom: 20px;
-    }}
-    .security-text {{ font-size: 12px; line-height: 18px; color: #A1A1AA; margin: 0; }}
-    .footer {{
-      padding: 24px 40px; text-align: center;
-      font-size: 12px; color: #52525B; border-top: 1px solid #2C2C32;
-    }}
-  </style>
+  <meta name="color-scheme" content="light">
+  <title>Your Moonlight Photo Studio verification code</title>
 </head>
-<body>
-  <div class="wrapper">
-    <div class="header">
-      <div class="brand-title">Moonlight Photo Studio</div>
-      <div class="brand-subtitle">Memory Wall Studio</div>
-    </div>
-    <div class="content">
-      <h1 class="title">Password Reset Verification</h1>
-      <p class="description">
-        We received a request to reset the password for your Moonlight Photo Studio account.
-        Enter this 6-digit verification code to proceed:
-      </p>
-      <div class="otp-container">
-        <div class="otp-code">{otp_code}</div>
-      </div>
-      <p class="expiry-note">
-        This code expires in <strong>{expiry_minutes} minutes</strong>.
-        Never share this code with anyone.
-      </p>
-      <div class="security-callout">
-        <p class="security-text">
-          <strong>Didn’t request this?</strong> If you did not ask to reset your password,
-          you can safely disregard this email. Your current password remains active.
-        </p>
-      </div>
-    </div>
-    <div class="footer">
-      &copy; {datetime.now(UTC).year} Moonlight Photo Studio. All rights reserved.<br>
-      Automated security transmission. Replies are not monitored.
-    </div>
-  </div>
+<body style="margin:0;padding:0;background-color:#FDF6EC;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+         style="background-color:#FDF6EC;padding:32px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+             style="max-width:560px;background-color:#FFFCF7;border:1px solid #EFDFC9;
+                    border-top:3px solid #9B1118;border-radius:16px;">
+        <tr><td align="center" style="padding:32px 40px 8px;font-family:{sans};">
+          <div style="font-size:11px;letter-spacing:4px;text-transform:uppercase;
+                      color:#8C6A2F;font-weight:600;">Est. 1985</div>
+          <div style="font-family:{serif};font-size:26px;color:#9B1118;margin-top:6px;">
+            Moonlight Photo Studio</div>
+          <div style="width:56px;height:1px;background-color:#C9A25A;margin:16px auto 0;
+                      line-height:1px;font-size:1px;">&nbsp;</div>
+        </td></tr>
+        <tr><td align="center" style="padding:24px 40px 8px;font-family:{sans};color:#4A3329;">
+          <h1 style="font-family:{serif};font-size:22px;font-weight:600;color:#2A1712;
+                     margin:0 0 12px;">Reset your password</h1>
+          <p style="font-size:15px;line-height:24px;margin:0 0 28px;">
+            We received a request to reset the password for your Moonlight Photo Studio
+            account. Enter this 6-digit code to continue:</p>
+          <div style="display:inline-block;background-color:#F8ECDC;border:1px solid #EFDFC9;
+                      border-radius:10px;padding:14px 32px;margin-bottom:24px;">
+            <span style="font-family:Consolas,'SF Mono',Menlo,monospace;font-size:34px;
+                         font-weight:700;letter-spacing:8px;color:#2A1712;">{otp_code}</span>
+          </div>
+          <p style="font-size:14px;line-height:22px;color:#7A6356;margin:0 0 24px;">
+            This code expires in <strong style="color:#4A3329;">{expiry_minutes} minutes</strong>.
+            Never share it with anyone, including our team.</p>
+        </td></tr>
+        <tr><td style="padding:0 40px 32px;font-family:{sans};">
+          <div style="border-left:3px solid #C9A25A;background-color:#FDF6EC;padding:14px 18px;
+                      font-size:13px;line-height:20px;color:#4A3329;">
+            <strong>Didn’t ask for this?</strong> You can ignore this email. Your current
+            password stays active.</div>
+        </td></tr>
+        <tr><td align="center" style="padding:20px 40px;border-top:1px solid #EFDFC9;
+                                       font-family:{sans};font-size:12px;color:#7A6356;">
+          &copy; {year} Moonlight Photo Studio · This is an automated message; replies
+          aren’t monitored.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
 </body>
 </html>"""
 

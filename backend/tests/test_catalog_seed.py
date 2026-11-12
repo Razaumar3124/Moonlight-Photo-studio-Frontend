@@ -1,30 +1,33 @@
 import pytest
 
 from app.db.seed_catalog import (
-    FRONTEND_WOOD_FINISHES,
     SEED_MATERIALS,
     SEED_MOLDINGS,
     SEED_TEMPLATES,
 )
 from app.models.catalog import FrameMaterialInDB
+from app.modules import catalog
 from tests.fakes import FakeCatalogRepository, FakeTemplateRepository, populate_fake_catalog
 
 
 def test_seed_data_counts_and_constants():
-    """Verify master seed data counts and alignment with frontend specs."""
+    """Verify master seed data counts and alignment with the planner catalog."""
     assert len(SEED_MATERIALS) == 4
     assert len(SEED_MOLDINGS) == 4
     assert len(SEED_TEMPLATES) == 10
-    assert len(FRONTEND_WOOD_FINISHES) == 8
+    assert len(catalog.FRAME_FINISHES) == 8
 
 
-def test_seed_frontend_wood_finishes_have_valid_swatches():
-    """Verify frontend wood finish swatches contain valid hex codes and profiles."""
-    for finish in FRONTEND_WOOD_FINISHES:
-        assert finish["hex"].startswith("#")
-        assert len(finish["hex"]) == 7
+def test_seed_oak_moulding_offers_every_catalog_finish():
+    """The oak moulding's colours are the catalog finishes (one source, same IDs/hex/profile)."""
+    oak = next(m for m in SEED_MOLDINGS if m["sku"] == "MOLD-OAK-BOX-100")
+    assert oak["available_colors"] == [
+        {"id": f.id, "name": f.label, "hex": f.hex, "profile_in": f.profile_inches}
+        for f in catalog.FRAME_FINISHES
+    ]
+    for finish in oak["available_colors"]:
+        assert finish["hex"].startswith("#") and len(finish["hex"]) == 7
         assert finish["profile_in"] > 0
-        assert len(finish["name"]) > 0
 
 
 @pytest.mark.asyncio

@@ -3,9 +3,11 @@ import type { LengthUnit } from '@/lib/units'
 import type { TemplateCategory } from '@/types/api'
 
 /**
- * Static planner options. Swatch hex values were sampled from
- * reference_designs/memory_wall/laptop_view.png. They're TEMPORARY where the API should be the
- * source (wood finishes → /frames available_colors, see API_ALIGNMENT.md M8).
+ * Planner options and rules. The backend catalog (`GET /catalog`, backend/app/modules/catalog.py)
+ * is the source of truth and publishes the same IDs and values; this file mirrors it until
+ * Phase 5 loads the catalog from the API. backend/tests/test_catalog_contract.py parses this file
+ * and fails if the two drift, so change IDs and values on both sides together. IDs are permanent:
+ * saved designs and quotes store them.
  */
 
 export interface Swatch {
@@ -30,7 +32,7 @@ export interface WoodFinish extends Swatch {
   profileIn: number
 }
 
-/** "Wood Moulding & Finish". Placeholder until /frames returns hex + profile per colour. */
+/** "Wood Moulding & Finish" → catalog `frame_finishes` (`profile_inches`). */
 export const WOOD_FINISHES: readonly WoodFinish[] = [
   { id: 'walnut', label: 'Walnut', hex: '#784E2D', profileIn: 1 },
   { id: 'natural-oak', label: 'Natural Oak', hex: '#916843', profileIn: 1 },
@@ -61,7 +63,7 @@ export interface FrameSize {
   recommended?: boolean
 }
 
-/** Standard photo openings (inches). Client-side list until the API offers one (M9). */
+/** Standard photo openings (inches) → catalog `frame_sizes`. */
 export const FRAME_SIZES: readonly FrameSize[] = [
   { id: '5x7', w: 5, h: 7, label: '5 x 7 inches' },
   { id: '8x10', w: 8, h: 10, label: '8 x 10 inches' },
@@ -119,16 +121,15 @@ export const ROOM_PHOTO_IN = {
 } as const
 
 /**
- * Layout options in the UI → API template category.
- * `row` has no matching category in the contract (API_ALIGNMENT.md M6); until it exists, the
- * client lays out a single row itself and saves the version as `layout_type: 'custom'`.
+ * Layout options in the UI → API template category / `layout_type` (M6 resolved: the API uses
+ * the same four IDs; legacy `focal_center` is normalised to `centre` by the server).
  */
 export const LAYOUT_STYLES = [
   { id: 'grid', label: 'Grid', apiCategory: 'grid' },
   { id: 'salon', label: 'Salon', apiCategory: 'salon' },
-  { id: 'centre', label: 'Centre', apiCategory: 'focal_center' },
-  { id: 'row', label: 'Row', apiCategory: null },
-] as const satisfies ReadonlyArray<{ id: string; label: string; apiCategory: TemplateCategory | null }>
+  { id: 'centre', label: 'Centre', apiCategory: 'centre' },
+  { id: 'row', label: 'Row', apiCategory: 'row' },
+] as const satisfies ReadonlyArray<{ id: string; label: string; apiCategory: TemplateCategory }>
 
 export type LayoutStyleId = (typeof LAYOUT_STYLES)[number]['id']
 

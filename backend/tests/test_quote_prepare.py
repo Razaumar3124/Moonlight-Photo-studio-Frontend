@@ -41,7 +41,7 @@ def make_valid_design_payload(frames_count: int = 9, style: str = "grid") -> dic
         "wall": {
             "widthIn": 120.0,
             "heightIn": 96.0,
-            "paintId": "warm-chalk",
+            "paintId": "warm-cream",
             "colorHex": "#F0EBE4",
             "displayUnit": "in",
             "hasSofa": True,
@@ -95,7 +95,7 @@ async def test_quote_prepare_success(
 
     assert "Hello Moonlight Photo Studio! 👋" in decoded_text
     assert f"Reference: {quote_ref}" in decoded_text
-    assert "120 × 96 inches" in decoded_text
+    assert "Wall Size: 120 × 96 in\n" in decoded_text
     assert "Gallery Grid" in decoded_text
     assert "Frames: 9" in decoded_text
     assert "Natural Oak" in decoded_text

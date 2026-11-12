@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
+from app.modules.catalog import RULES
 from app.modules.geometry.layouts import (
     LAYOUT_ENGINES,
     LAYOUT_STYLES,
@@ -23,12 +24,14 @@ from app.modules.geometry.rect import (
     translate,
 )
 
-EYE_LEVEL_FROM_FLOOR_IN = 57.0
-DEFAULT_WALL_MARGIN_IN = 6.0
-DEFAULT_MIN_BOTTOM_IN = 24.0
-SOFA_TOP_FROM_FLOOR_IN = 32.0
-SOFA_CLEARANCE_IN = 8.0
-VARIANT_COUNT = 3
+# Planner rules come from the catalog, so generated layouts, saved-design validation and the
+# frontend's fit check all use the same numbers.
+EYE_LEVEL_FROM_FLOOR_IN = RULES.eye_level_inches
+DEFAULT_WALL_MARGIN_IN = RULES.wall_margin_inches
+DEFAULT_MIN_BOTTOM_IN = RULES.min_bottom_inches
+SOFA_TOP_FROM_FLOOR_IN = RULES.sofa_top_from_floor_inches
+SOFA_CLEARANCE_IN = RULES.sofa_clearance_inches
+VARIANT_COUNT = RULES.variant_count
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,9 +119,7 @@ def build_scene(
         style = "grid"
 
     # Wall clearances
-    sofa_h = SOFA_TOP_FROM_FLOOR_IN + SOFA_CLEARANCE_IN
-    sofa_clearance = sofa_h if has_sofa else DEFAULT_MIN_BOTTOM_IN
-    min_bottom = max(DEFAULT_MIN_BOTTOM_IN, sofa_clearance)
+    min_bottom = RULES.min_bottom(has_sofa)
     max_w = max(0.0, wall_w - 2.0 * margin_in)
     max_h = max(0.0, wall_h - margin_in - min_bottom)
 
@@ -267,11 +268,7 @@ def suggest_layouts(
     """
     suggestions: list[LayoutSuggestion] = []
     free_w = wall_w - 2.0 * margin_in
-    free_h = (
-        wall_h
-        - margin_in
-        - (SOFA_TOP_FROM_FLOOR_IN + SOFA_CLEARANCE_IN if has_sofa else DEFAULT_MIN_BOTTOM_IN)
-    )
+    free_h = wall_h - margin_in - RULES.min_bottom(has_sofa)
     target_aspect = (free_w / free_h) if free_h > 0 else 1.0
 
     for style in LAYOUT_STYLES:

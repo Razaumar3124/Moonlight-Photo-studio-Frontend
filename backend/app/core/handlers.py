@@ -62,10 +62,13 @@ async def validation_exception_handler(
     """Handle Pydantic schema validation failures with standard envelope."""
     details: list[dict[str, str]] = []
     for error in exc.errors():
-        # Get the field name from error location path
-        loc = error.get("loc", [])
-        field = str(loc[-1]) if loc else ""
-        msg = error.get("msg", "Invalid value")
+        # Request field path without the source prefix: "email", "wall.width_inches",
+        # "items.0.matting.color_id" (a top-level field keeps its plain name).
+        loc = list(error.get("loc", []))
+        if loc and loc[0] in ("body", "query", "path", "header", "cookie"):
+            loc = loc[1:]
+        field = ".".join(str(part) for part in loc)
+        msg = str(error.get("msg", "Invalid value")).removeprefix("Value error, ")
         details.append({"field": field, "issue": msg})
 
     logger.info("Validation failed: %d errors", len(details))

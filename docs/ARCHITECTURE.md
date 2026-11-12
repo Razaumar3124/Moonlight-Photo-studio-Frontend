@@ -78,16 +78,16 @@ frontend/src/
 ├── services/                    The only layer that talks to the network
 │   ├── apiClient.ts             fetch wrapper: base URL, Bearer auth, ApiError, query, upload
 │   ├── endpoints.ts             Every backend path from API_CONTRACT.md
-│   └── tokenStorage.ts          JWT persistence (one place to change if auth moves to cookies)
+│   └── tokenStorage.ts          Access token in memory (refresh token is an httpOnly cookie)
 │                                Phase 5 adds one module per domain: auth.ts, catalog.ts,
-│                                photos.ts, templates.ts, geometry.ts, pricing.ts, designs.ts, quotes.ts
+│                                photos.ts, templates.ts, geometry.ts, designs.ts, quotes.ts
 │
 ├── styles/theme.css             Design tokens (@theme)
 ├── types/
 │   └── api/                     ★ TypeScript mirror of API_CONTRACT.md, one file per section
-│       ├── common.ts            EntityId, DecimalString, ListResponse<T>, ApiErrorEnvelope, BoundingBox…
+│       ├── common.ts            EntityId (string), ListResponse<T>, ApiErrorEnvelope, BoundingBox…
 │       ├── auth.ts  catalog.ts  photos.ts  templates.ts
-│       ├── geometry.ts  pricing.ts  designs.ts  quotes.ts
+│       ├── geometry.ts  designs.ts  quotes.ts
 │       └── index.ts             `import type { User } from '@/types/api'`
 ├── index.css                    Tailwind entry, custom variants, base layer
 ├── main.tsx

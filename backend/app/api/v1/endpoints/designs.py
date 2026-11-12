@@ -67,7 +67,8 @@ async def list_designs(
     ),
     sort: str = Query(
         default="updated_at:desc",
-        description="Sort field and direction (e.g. updated_at:desc, created_at:desc, title:asc)",
+        pattern=r"^(updated_at|created_at|title):(asc|desc)$",
+        description="updated_at, created_at or title, then :asc or :desc",
     ),
 ) -> DesignListResponse:
     """EP-DSGN-04: List the current user's designs."""

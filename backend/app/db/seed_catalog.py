@@ -10,6 +10,7 @@ from app.core.config import get_settings
 from app.db.mongodb import mongo_manager
 from app.models.catalog import FrameColorOption, FrameMaterialInDB, FrameMoldingInDB
 from app.models.template import LayoutTemplateInDB, TemplateSlotInDB
+from app.modules import catalog
 from app.repositories.catalog_repository import CatalogRepository
 from app.repositories.template_repository import TemplateRepository
 
@@ -73,17 +74,15 @@ SEED_MATERIALS: list[dict[str, Any]] = [
     },
 ]
 
-# Exact 8 wood finishes from frontend WOOD_FINISHES constants
-FRONTEND_WOOD_FINISHES = [
-    {"name": "Walnut", "hex": "#784E2D", "profile_in": 1.0},
-    {"name": "Natural Oak", "hex": "#916843", "profile_in": 1.0},
-    {"name": "Ivory", "hex": "#FAF3E8", "profile_in": 0.875},
-    {"name": "Whitewash", "hex": "#EEE6DE", "profile_in": 0.875},
-    {"name": "Dark Teak", "hex": "#774B31", "profile_in": 1.0},
-    {"name": "Honey", "hex": "#B1875F", "profile_in": 1.0},
-    {"name": "Golden Teak", "hex": "#B07840", "profile_in": 1.125},
-    {"name": "Mahogany", "hex": "#7A432D", "profile_in": 1.125},
-]
+
+def _finish_colours(*finish_ids: str) -> list[dict[str, Any]]:
+    """Moulding colour options for planner finishes, taken from the catalog (single source)."""
+    finishes = [catalog.get_finish(fid) for fid in finish_ids] if finish_ids else []
+    chosen = [f for f in finishes if f] if finish_ids else list(catalog.FRAME_FINISHES)
+    return [
+        {"id": f.id, "name": f.label, "hex": f.hex, "profile_in": f.profile_inches} for f in chosen
+    ]
+
 
 SEED_MOLDINGS: list[dict[str, Any]] = [
     {
@@ -94,7 +93,7 @@ SEED_MOLDINGS: list[dict[str, Any]] = [
         "profile_depth_inches": 1.5,
         "rabbet_depth_inches": 0.75,
         "price_per_linear_inch": "22.00",
-        "available_colors": FRONTEND_WOOD_FINISHES,
+        "available_colors": _finish_colours(),
         "thumbnail_url": "/static/frames/oak-box.webp",
         "is_active": True,
     },
@@ -106,12 +105,7 @@ SEED_MOLDINGS: list[dict[str, Any]] = [
         "profile_depth_inches": 1.25,
         "rabbet_depth_inches": 0.625,
         "price_per_linear_inch": "19.50",
-        "available_colors": [
-            {"name": "Ivory", "hex": "#FAF3E8", "profile_in": 0.875},
-            {"name": "Whitewash", "hex": "#EEE6DE", "profile_in": 0.875},
-            {"name": "Dark Teak", "hex": "#774B31", "profile_in": 1.0},
-            {"name": "Honey", "hex": "#B1875F", "profile_in": 1.0},
-        ],
+        "available_colors": _finish_colours("ivory", "whitewash", "dark-teak", "honey"),
         "thumbnail_url": "/static/frames/wood-classic.webp",
         "is_active": True,
     },
@@ -124,9 +118,9 @@ SEED_MOLDINGS: list[dict[str, Any]] = [
         "rabbet_depth_inches": 0.5,
         "price_per_linear_inch": "16.00",
         "available_colors": [
-            {"name": "Matte Black", "hex": "#1D191A", "profile_in": 0.5},
-            {"name": "Brushed Silver", "hex": "#C5C5C7", "profile_in": 0.5},
-            {"name": "Champagne Gold", "hex": "#D4AF37", "profile_in": 0.5},
+            {"id": "matte-black", "name": "Matte Black", "hex": "#1D191A", "profile_in": 0.5},
+            {"id": "brushed-silver", "name": "Brushed Silver", "hex": "#C5C5C7", "profile_in": 0.5},
+            {"id": "champagne-gold", "name": "Champagne Gold", "hex": "#D4AF37", "profile_in": 0.5},
         ],
         "thumbnail_url": "/static/frames/metal-slim.webp",
         "is_active": True,
@@ -140,21 +134,27 @@ SEED_MOLDINGS: list[dict[str, Any]] = [
         "rabbet_depth_inches": 0.5,
         "price_per_linear_inch": "12.50",
         "available_colors": [
-            {"name": "Pure White", "hex": "#FFFFFF", "profile_in": 0.75},
-            {"name": "Midnight Black", "hex": "#111111", "profile_in": 0.75},
+            {"id": "pure-white", "name": "Pure White", "hex": "#FFFFFF", "profile_in": 0.75},
+            {
+                "id": "midnight-black",
+                "name": "Midnight Black",
+                "hex": "#111111",
+                "profile_in": 0.75,
+            },
         ],
         "thumbnail_url": "/static/frames/synthetic-minimal.webp",
         "is_active": True,
     },
 ]
 
-# 10 gallery wall templates matching frontend TEMPLATES
+# The 10 planner templates (frontend lib/templates.ts); slugs listed in catalog.TEMPLATE_IDS
 SEED_TEMPLATES: list[dict[str, Any]] = [
     {
         "slug": "balanced-grid",
         "name": "Balanced Grid",
         "description": "Nine Atelier Classic frames in a calm, even 3 × 3 grid.",
         "category": "grid",
+        "gap_inches": 3.0,
         "min_wall_width_inches": 80.0,
         "min_wall_height_inches": 60.0,
         "recommended_wall_width_inches": 120.0,
@@ -178,6 +178,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Creative Salon",
         "description": "A relaxed cluster of mixed sizes and orientations, gallery-style.",
         "category": "salon",
+        "gap_inches": 2.5,
         "min_wall_width_inches": 90.0,
         "min_wall_height_inches": 60.0,
         "recommended_wall_width_inches": 140.0,
@@ -204,6 +205,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Centre Focus",
         "description": "One statement print framed by four smaller companions.",
         "category": "centre",
+        "gap_inches": 3.0,
         "min_wall_width_inches": 75.0,
         "min_wall_height_inches": 55.0,
         "recommended_wall_width_inches": 110.0,
@@ -224,6 +226,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Minimal Row",
         "description": "Four square-feeling frames on one clean line. Perfect above a sofa.",
         "category": "row",
+        "gap_inches": 4.0,
         "min_wall_width_inches": 80.0,
         "min_wall_height_inches": 50.0,
         "recommended_wall_width_inches": 110.0,
@@ -243,6 +246,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Classic Six",
         "description": "A 3 × 2 grid of 11 × 14 prints. Tidy and timeless.",
         "category": "grid",
+        "gap_inches": 3.0,
         "min_wall_width_inches": 70.0,
         "min_wall_height_inches": 55.0,
         "recommended_wall_width_inches": 100.0,
@@ -263,7 +267,8 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "slug": "triptych",
         "name": "Triptych",
         "description": "Three tall prints that tell one story, left to right.",
-        "category": "triptych",
+        "category": "row",
+        "gap_inches": 3.0,
         "min_wall_width_inches": 65.0,
         "min_wall_height_inches": 50.0,
         "recommended_wall_width_inches": 90.0,
@@ -282,6 +287,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Petite Salon",
         "description": "Small frames, big charm. Ideal for hallways and stairs.",
         "category": "salon",
+        "gap_inches": 2.0,
         "min_wall_width_inches": 65.0,
         "min_wall_height_inches": 50.0,
         "recommended_wall_width_inches": 95.0,
@@ -304,6 +310,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Statement Centre",
         "description": "A large landscape hero with six petite frames on its wings.",
         "category": "centre",
+        "gap_inches": 2.5,
         "min_wall_width_inches": 85.0,
         "min_wall_height_inches": 60.0,
         "recommended_wall_width_inches": 125.0,
@@ -326,6 +333,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Panorama Row",
         "description": "Five landscape prints for long walls and corridors.",
         "category": "row",
+        "gap_inches": 3.0,
         "min_wall_width_inches": 85.0,
         "min_wall_height_inches": 45.0,
         "recommended_wall_width_inches": 120.0,
@@ -346,6 +354,7 @@ SEED_TEMPLATES: list[dict[str, Any]] = [
         "name": "Grand Quad",
         "description": "Four large prints in a bold 2 × 2 block.",
         "category": "grid",
+        "gap_inches": 4.0,
         "min_wall_width_inches": 65.0,
         "min_wall_height_inches": 60.0,
         "recommended_wall_width_inches": 95.0,
@@ -462,6 +471,7 @@ async def seed_catalogs_and_templates(
                     name=tmpl_data["name"],
                     description=tmpl_data["description"],
                     category=tmpl_data["category"],
+                    gap_inches=tmpl_data["gap_inches"],
                     min_wall_width_inches=tmpl_data["min_wall_width_inches"],
                     min_wall_height_inches=tmpl_data["min_wall_height_inches"],
                     recommended_wall_width_inches=tmpl_data["recommended_wall_width_inches"],
@@ -478,6 +488,7 @@ async def seed_catalogs_and_templates(
                 name=tmpl_data["name"],
                 description=tmpl_data["description"],
                 category=tmpl_data["category"],
+                gap_inches=tmpl_data["gap_inches"],
                 min_wall_width_inches=tmpl_data["min_wall_width_inches"],
                 min_wall_height_inches=tmpl_data["min_wall_height_inches"],
                 recommended_wall_width_inches=tmpl_data["recommended_wall_width_inches"],

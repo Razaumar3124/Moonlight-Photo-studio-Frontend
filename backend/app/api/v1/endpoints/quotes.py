@@ -31,6 +31,7 @@ from app.schemas.quote import (
     QuotePrepareResponse,
     QuoteShareResponse,
 )
+from app.services.quote_service import PREVIEW_EXTENSIONS
 from app.services.rate_limiter import rate_limiter
 
 logger = logging.getLogger("moonlight_studio.quotes")
@@ -38,13 +39,11 @@ logger = logging.getLogger("moonlight_studio.quotes")
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
 
 # The shared report is an HTML page whose URL carries the share token: lock it to its own
-# assets (plus Google Fonts used by the template), never send the URL on as a Referer, and
-# keep it out of shared caches.
+# assets (inline styles, system fonts, its preview image), never send the URL on as a
+# Referer, and keep it out of shared caches.
 _REPORT_HTML_HEADERS = {
     "Content-Security-Policy": (
-        "default-src 'none'; img-src 'self' data:; "
-        "style-src 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com; "
+        "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; "
         "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
     ),
     "Referrer-Policy": "no-referrer",
@@ -120,7 +119,7 @@ async def prepare_quote(
         details = [
             {
                 "field": "design_data." + ".".join(str(part) for part in err["loc"]),
-                "issue": err["msg"],
+                "issue": str(err["msg"]).removeprefix("Value error, "),
             }
             for err in exc.errors(include_input=False, include_url=False)[:20]
         ]
@@ -205,11 +204,13 @@ async def get_shared_quote_preview(
     """Stream high-res preview image for an authorized share token holder without authentication."""
     quote, _ = await quote_service.get_quote_by_share_token(token)
     data, content_type = await quote_service.r2_storage.get_object(quote.preview_image_key)
-    filename = f"moonlight-quote-{quote.quote_reference}.png"
+    media_type = content_type or quote.preview_image_content_type
+    ext = PREVIEW_EXTENSIONS.get(media_type, "png")
+    filename = f"moonlight-quote-{quote.quote_reference}.{ext}"
 
     return Response(
         content=data,
-        media_type=content_type or quote.preview_image_content_type,
+        media_type=media_type,
         headers={
             "Cache-Control": "private, max-age=3600",
             "Content-Disposition": f'inline; filename="{filename}"',

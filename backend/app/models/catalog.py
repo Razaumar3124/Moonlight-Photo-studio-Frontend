@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from bson import ObjectId
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.user import PyObjectId
 
@@ -32,13 +32,25 @@ class FrameMaterialInDB(BaseModel):
 
 
 class FrameColorOption(BaseModel):
-    """Embedded frame finish colour option with hex code and face profile width."""
+    """Embedded frame finish colour option with hex code and face profile width.
 
+    `id` is the planner finish ID (app/modules/catalog.py) for wood finishes. Documents seeded
+    before it existed get one derived from the name ("Natural Oak" → "natural-oak").
+    """
+
+    id: str
     name: str
     hex: str
     profile_in: float
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_legacy_id(cls, data: object) -> object:
+        if isinstance(data, dict) and not data.get("id") and isinstance(data.get("name"), str):
+            data = {**data, "id": "-".join(data["name"].lower().split())}
+        return data
 
 
 class FrameMoldingInDB(BaseModel):

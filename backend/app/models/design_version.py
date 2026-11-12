@@ -13,6 +13,7 @@ class MattingInDB(BaseModel):
     bottom_inches: float = Field(default=2.0, ge=0.0)
     left_inches: float = Field(default=2.0, ge=0.0)
     right_inches: float = Field(default=2.0, ge=0.0)
+    color_id: str | None = Field(default=None, description="Catalog mount colour ID")
     color_hex: str = Field(default="#F4F3F3", description="Mount color hex swatch")
 
 

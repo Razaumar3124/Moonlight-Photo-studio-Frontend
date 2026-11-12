@@ -6,7 +6,8 @@ designs, and WhatsApp quote requests with shareable design reports.
 
 The code base started as a copy of the SAF Studio backend. Phase 1 (2026-11-12) separated it:
 Moonlight branding, its own database and configuration, local development storage, and a test
-suite that can't reach real services. See [docs/ROADMAP.md](../docs/ROADMAP.md) for later phases.
+suite that can't reach real services. Phase 2 hardened security; Phase 3 aligned the API contract
+and catalog with the planner. See [docs/ROADMAP.md](../docs/ROADMAP.md) for later phases.
 
 ## Stack
 
@@ -87,6 +88,25 @@ built-in development `SECRET_KEY` is in use.
 Behind a reverse proxy or load balancer, set `TRUSTED_PROXIES` to its address range, or every
 client is counted as the proxy's single IP for rate limiting.
 
+## Planner catalog (Phase 3)
+
+[app/modules/catalog.py](app/modules/catalog.py) is the source of truth for every Memory Wall
+option and rule, with stable IDs: frame sizes (`5x7` … `24x36`), wood finishes (`walnut`,
+`natural-oak`, … with moulding face widths), mount colours, paint shades, layout styles
+(`grid`, `salon`, `centre`, `row`), template slugs, units (`ft`, `in`, `cm`, `m`) and the planner
+rules (wall 36–480 × 48–240 in, 1–16 frames, gap 0–12, mount 0–6, 6 in margin, 12 in above the
+floor or above the sofa line, eye level 60 in). `GET /api/v1/catalog` publishes it.
+
+- Designs, quotes, layout generation, validation and the share report all resolve IDs through
+  it. Unknown IDs are rejected (422); nothing falls back to a default size or finish.
+- The outer frame size is always opening + mounts + 2 × the finish's moulding face, computed
+  on the server.
+- IDs are permanent. Legacy values in stored data (SAF finish IDs, `focal_center`/`triptych`
+  categories, `mm`, older limits) are still read and displayed; they are never migrated.
+- The frontend mirrors the catalog in `features/memory-wall/constants.ts` until Phase 5 loads it;
+  `tests/test_catalog_contract.py` fails if the two (or the endpoint map) drift. Change both
+  sides together.
+
 ## Local development storage
 
 `STORAGE_BACKEND=local` stores photos and quote previews under `LOCAL_STORAGE_PATH` (default
@@ -118,7 +138,7 @@ Both print the masked target first. Check it before running them against a share
 |---|---|
 | Health | `GET /health/live`, `GET /health/ready`, `GET /health` |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/google`; `GET /auth/me`; `POST /auth/forgot-password`, `/auth/forgot-password/verify`, `/auth/forgot-password/reset` |
-| Catalog | `GET /frame-materials`, `GET /frames`, `GET /templates` |
+| Catalog | `GET /catalog`, `GET /frame-materials`, `GET /frames`, `GET /templates` |
 | Photos | `POST /photos/upload`, `GET /photos`, `GET /photos/{id}/thumbnail`, `GET /photos/{id}/preview`, `DELETE /photos/{id}` |
 | Geometry | `POST /geometry/validate-layout`, `/geometry/generate-layout`, `/geometry/regenerate`, `/geometry/redesign` |
 | Designs | `POST /designs`, `GET /designs`, `GET/PATCH/DELETE /designs/{id}`, `POST /designs/{id}/versions` |
@@ -144,6 +164,7 @@ fails any test that tries to reach a non-loopback host. The live tests
 (`test_live_mongo_registration.py`, `test_live_mongo_security.py`) run only if MongoDB is
 listening on localhost; they use throwaway `moonlight_studio_pytest_live*` databases and drop
 them afterwards. `test_security_hardening.py` holds the Phase 2 security regression suite.
+`test_catalog_contract.py` holds the Phase 3 catalog, contract and validation regression suite.
 
 ## Layout
 

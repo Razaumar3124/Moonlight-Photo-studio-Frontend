@@ -27,6 +27,9 @@ class LayoutTemplateInDB(BaseModel):
     name: str
     description: str
     category: str
+    gap_inches: float | None = Field(
+        default=None, description="Spacing between frames; None for templates seeded before it"
+    )
     min_wall_width_inches: float
     min_wall_height_inches: float
     recommended_wall_width_inches: float

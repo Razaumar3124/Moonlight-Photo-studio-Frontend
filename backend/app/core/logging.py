@@ -80,3 +80,6 @@ def setup_logging(log_level: str = "INFO", json_logs: bool = False) -> None:
     # Set external libraries to warning to reduce noise
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
+    # PyMongo's DEBUG command log prints whole documents (password hashes, emails, phones):
+    # never let LOG_LEVEL=DEBUG turn it on.
+    logging.getLogger("pymongo").setLevel(logging.INFO)

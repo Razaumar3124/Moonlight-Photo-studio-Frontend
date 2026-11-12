@@ -1,22 +1,11 @@
 """MongoDB document representations for quotation requests and digital reports."""
 
 from datetime import UTC, datetime
-from typing import Annotated, Any
 
 from bson import ObjectId
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
-def validate_object_id(v: Any) -> str:
-    """Validate or convert BSON ObjectId into 24-character hexadecimal string."""
-    if isinstance(v, ObjectId):
-        return str(v)
-    if isinstance(v, str) and ObjectId.is_valid(v):
-        return v
-    raise ValueError("Invalid ObjectId string")
-
-
-PyObjectId = Annotated[str, BeforeValidator(validate_object_id)]
+from app.models.user import PyObjectId
 
 
 class QuoteContactSnapshot(BaseModel):
@@ -32,6 +21,7 @@ class QuoteWallSnapshot(BaseModel):
 
     width_inches: float = Field(gt=0.0, description="Authoritative wall width in inches")
     height_inches: float = Field(gt=0.0, description="Authoritative wall height in inches")
+    paint_id: str | None = Field(default=None, description="Catalog paint shade ID")
     color_hex: str = Field(default="#F0EBE4", description="Wall backdrop paint swatch hex")
     texture: str | None = Field(default=None, description="Wall texture surface style")
     display_unit: str = Field(default="in", description="Customer's preferred measurement unit")
@@ -51,6 +41,15 @@ class QuoteFrameSnapshot(BaseModel):
     finish_name: str | None = Field(default=None, description="Human-readable finish name")
     width_inches: float = Field(gt=0.0, description="Outer frame width in inches")
     height_inches: float = Field(gt=0.0, description="Outer frame height in inches")
+    opening_width_inches: float | None = Field(
+        default=None, description="Photo opening width as hung (None on older quotes)"
+    )
+    opening_height_inches: float | None = Field(
+        default=None, description="Photo opening height as hung (None on older quotes)"
+    )
+    profile_inches: float | None = Field(
+        default=None, description="Moulding face width used for the outer size"
+    )
     position_x_inches: float = Field(
         default=0.0, ge=0.0, description="X coordinate of top-left corner in inches"
     )
@@ -58,8 +57,9 @@ class QuoteFrameSnapshot(BaseModel):
         default=0.0, ge=0.0, description="Y coordinate of top-left corner in inches"
     )
     mount_enabled: bool = Field(default=True, description="Whether matboard border is active")
+    mount_color_id: str | None = Field(default=None, description="Catalog mount colour ID")
     mount_color_name: str | None = Field(
-        default=None, description="Mount / matboard color description"
+        default=None, description="Mount colour label (older quotes may hold the ID)"
     )
     mount_margin_inches: float = Field(
         default=0.0, ge=0.0, description="Matboard border margin in inches"

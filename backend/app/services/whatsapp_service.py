@@ -8,27 +8,19 @@ import urllib.parse
 from typing import Any
 
 from app.core.config import get_settings
+from app.modules import catalog
 
 
 class WhatsAppService:
     """Service for building clean, user-friendly WhatsApp Click-to-Chat URLs."""
 
+    # Customer-facing names for the planner's layout styles (legacy names are normalised first).
     STYLE_LABELS: dict[str, str] = {
         "grid": "Gallery Grid",
         "salon": "Salon Arrangement",
-        "centre": "Centre Anchor",
+        "centre": "Centre Focus",
         "row": "Linear Row",
-        "linear": "Linear Row",
         "custom": "Custom Arrangement",
-    }
-
-    FINISH_LABELS: dict[str, str] = {
-        "natural-oak": "Natural Oak",
-        "dark-walnut": "Dark Walnut",
-        "matte-black": "Matte Black",
-        "warm-metallic": "Warm Metallic",
-        "white-ash": "White Ash",
-        "raw-pine": "Raw Pine",
     }
 
     def __init__(self, business_number: str | None = None) -> None:
@@ -43,8 +35,8 @@ class WhatsAppService:
 
     def format_style_label(self, raw_style: str) -> str:
         """Format layout style identifier to customer-facing display name."""
-        norm = raw_style.strip().lower()
-        return self.STYLE_LABELS.get(norm, norm.replace("-", " ").title())
+        norm = catalog.normalize_layout(raw_style)
+        return self.STYLE_LABELS.get(norm, catalog.humanize_id(norm))
 
     def format_finish_summary(self, finish_ids: list[str]) -> str:
         """Format single or mixed frame finishes into a human-readable summary."""
@@ -53,7 +45,7 @@ class WhatsAppService:
 
         unique_labels = []
         for fid in finish_ids:
-            label = self.FINISH_LABELS.get(fid, fid.replace("-", " ").title())
+            label = catalog.finish_label(fid)
             if label not in unique_labels:
                 unique_labels.append(label)
 
@@ -78,11 +70,8 @@ class WhatsAppService:
         customer_email: str | None = None,
     ) -> str:
         """Compose the WhatsApp quote request message in Moonlight Photo Studio's voice."""
-        unit_label = "inches" if display_unit in ("in", "inch", "inches") else display_unit
-
-        # Format dimensions cleanly (avoid 120.0 if integer)
-        w_str = f"{wall_width:g}"
-        h_str = f"{wall_height:g}"
+        # Wall size in the customer's own unit (values arrive in inches).
+        wall_size = catalog.format_wall_size(wall_width, wall_height, display_unit)
         style_display = self.format_style_label(arrangement_style)
 
         # Format customer contact lines
@@ -104,7 +93,7 @@ class WhatsAppService:
             "I'd like to request a quote for my Memory Wall design.\n\n"
             "*DESIGN DETAILS*\n"
             f"• Reference: {quote_reference}\n"
-            f"• Wall Size: {w_str} × {h_str} {unit_label}\n"
+            f"• Wall Size: {wall_size}\n"
             f"• Arrangement: {style_display}\n"
             f"• Frames: {frame_count}\n"
             f"• Finish: {finish_summary}\n\n"

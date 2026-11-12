@@ -9,7 +9,6 @@ export type * from './catalog'
 export type * from './photos'
 export type * from './templates'
 export type * from './geometry'
-export type * from './pricing'
 export type * from './designs'
 export type * from './quotes'
 

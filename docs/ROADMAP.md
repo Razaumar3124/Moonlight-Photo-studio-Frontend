@@ -194,7 +194,29 @@ local fallbacks with live endpoints as the backend resolves API_ALIGNMENT items.
 - [x] 324 backend tests (+60 security, incl. live-MongoDB concurrency), mutation-checked; 40/40
       end-to-end checks on a throwaway database
 
-## Backend Phase 3+: Contract alignment & frontend wiring
+## Backend Phase 3: Contract alignment & data consistency ✅ (2026-11-12)
 
-Catalog IDs and validation limits shared with the planner, `display_unit` `m`, quote sizes/finishes
-from the catalog, string `EntityId`, regenerated `API_CONTRACT.md`, then the frontend Phase 5 wiring.
+- [x] Backend planner catalog (`app/modules/catalog.py`, `GET /catalog`) is the source of truth:
+      frame sizes, wood finishes, mount colours, paint shades, layout styles, templates and rules,
+      with stable IDs; the frontend constants are checked against it by a contract test
+- [x] Seeder: moulding colours carry finish IDs, Triptych is a `row` template, templates store
+      their gap; legacy categories and colour documents are normalised on read (no migration)
+- [x] Validation matches the planner: wall 36–480 × 48–240, 1–16 frames, gap 0–12, mount 0–6,
+      `display_unit` `m`, catalog IDs enforced, fit = 6 in margin + 12 in floor (or sofa line)
+- [x] Server-computed outer frame sizes (opening + mounts + moulding face), typed version
+      metadata/preview, duplicate-version check covers every stored field
+- [x] Quotes: catalog sizes/finishes/mount labels (no SAF tables, no silent 12 × 16 fallback),
+      planner-state fields (top-level unit, sofa, paint), JPEG/WebP previews keep their extension,
+      wall sizes in the customer's unit, no broken owner report link
+- [x] Share report and reset email restyled to the Moonlight palette; no Google Fonts
+- [x] `API_CONTRACT.md` regenerated from the implementation; `types/api/*` and `endpoints.ts`
+      aligned (string IDs, real shapes, no pricing); full validation field paths
+- [x] Design list `sort` allowlisted; PyMongo's DEBUG command log (whole documents) disabled
+- [x] 377 backend tests (+52 contract/regression), mutation-checked; 47/47 end-to-end checks
+      (plus the Phase 2 smoke, 40/40) on a throwaway local database
+
+## Next: frontend Phase 4 (auth UI wiring) and Phase 5 (planner API integration)
+
+Phase 4 wires sign-in, registration, Google and password reset to the real endpoints. Phase 5
+loads `GET /catalog`, saves designs through `/designs` (blocking Save while the layout doesn't
+fit), uploads photos and sends quotes through `/quotes/prepare`.

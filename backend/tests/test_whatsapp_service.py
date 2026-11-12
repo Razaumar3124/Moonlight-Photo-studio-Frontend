@@ -24,7 +24,7 @@ def test_whatsapp_service_single_finish():
     )
 
     assert "MQ-2026-0012" in msg
-    assert "120 × 96 inches" in msg
+    assert "Wall Size: 120 × 96 in\n" in msg
     assert "Gallery Grid" in msg
     assert "Frames: 9" in msg
     assert "Finish: Natural Oak" in msg
@@ -58,7 +58,8 @@ def test_whatsapp_service_mixed_finishes():
     )
 
     assert "Salon Arrangement" in msg
-    assert "144 × 108 ft" in msg
+    # Values arrive in inches and are shown in the customer's unit: 144 x 108 in = 12 x 9 ft
+    assert "Wall Size: 12 × 9 ft\n" in msg
     assert "Mixed (Natural Oak, Matte Black)" in msg
     assert "Mobile: +919876543210" in msg
 

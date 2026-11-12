@@ -8,7 +8,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.modules.catalog import RULES
 from app.modules.geometry.rect import Rect, bounds, overlaps
+
+# Positions arrive rounded (e.g. to 2 dp); a frame exactly on the margin must still pass.
+BOUNDARY_TOLERANCE_IN = 0.01
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,9 +42,9 @@ def validate_placed_frames(
     wall_w: float,
     wall_h: float,
     frames: Sequence[dict[str, Any]],
-    margin_in: float = 6.0,
+    margin_in: float = RULES.wall_margin_inches,
     has_sofa: bool = False,
-    min_bottom_in: float = 24.0,
+    min_bottom_in: float | None = None,
 ) -> ValidationResult:
     """Authoritative validation of user-placed or engine-placed frames on a wall.
 
@@ -53,13 +57,13 @@ def validate_placed_frames(
             - outer_y_inches: float
             - outer_width_inches: float
             - outer_height_inches: float
-        margin_in: Minimum safe margin around wall boundary
-        has_sofa: Whether sofa clearance is active
-        min_bottom_in: Minimum bottom margin from floor
+        margin_in: Minimum safe margin from the sides and the ceiling
+        has_sofa: Whether the reference sofa (and its clearance) is shown
+        min_bottom_in: Lowest point above the floor; defaults to the planner rule
+            (12 in, or above the sofa plus clearance), exactly like the frontend fit check
     """
-    if has_sofa:
-        # Standard sofa back 32" + 8" clearance = 40"
-        min_bottom_in = max(min_bottom_in, 40.0)
+    if min_bottom_in is None:
+        min_bottom_in = RULES.min_bottom(has_sofa)
 
     errors: list[ValidationError] = []
     warnings: list[ValidationWarning] = []
@@ -121,10 +125,10 @@ def validate_placed_frames(
 
     for item_id, r in rects:
         if (
-            r.x < margin_in - 1e-4
-            or r.right > wall_w - margin_in + 1e-4
-            or r.y < margin_in - 1e-4
-            or r.bottom > wall_h - min_bottom_in + 1e-4
+            r.x < margin_in - BOUNDARY_TOLERANCE_IN
+            or r.right > wall_w - margin_in + BOUNDARY_TOLERANCE_IN
+            or r.y < margin_in - BOUNDARY_TOLERANCE_IN
+            or r.bottom > wall_h - min_bottom_in + BOUNDARY_TOLERANCE_IN
         ):
             errors.append(
                 ValidationError(

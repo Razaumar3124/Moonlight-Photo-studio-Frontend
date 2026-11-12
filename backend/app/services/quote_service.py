@@ -20,10 +20,12 @@ from app.models.quote import (
     QuoteWallSnapshot,
 )
 from app.models.user import UserInDB
+from app.modules import catalog
 from app.repositories.photo_repository import PhotoRepository
 from app.repositories.quote_repository import QuoteRepository
 from app.schemas.quote import (
     QuoteDetailResponse,
+    QuoteFrameInput,
     QuotePrepareInput,
     QuotePrepareResponse,
 )
@@ -34,25 +36,28 @@ from app.storage import ObjectStorage
 
 logger = logging.getLogger("moonlight_studio.quote_service")
 
-# Approximate profile widths in inches for standard wood mouldings
-FRAME_PROFILE_WIDTHS: dict[str, float] = {
-    "natural-oak": 1.0,
-    "dark-walnut": 1.0,
-    "matte-black": 0.75,
-    "warm-metallic": 0.75,
-    "white-ash": 1.0,
-    "raw-pine": 1.0,
+# File extension for each accepted preview type (the key and the download name use it).
+PREVIEW_EXTENSIONS: dict[str, str] = {
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/jpeg": "jpg",
 }
 
-STANDARD_SIZES: dict[str, tuple[float, float]] = {
-    "8x10": (8.0, 10.0),
-    "10x12": (10.0, 12.0),
-    "11x14": (11.0, 14.0),
-    "12x16": (12.0, 16.0),
-    "16x20": (16.0, 20.0),
-    "20x24": (20.0, 24.0),
-    "24x36": (24.0, 36.0),
-}
+
+def frame_dimensions(frame: QuoteFrameInput) -> tuple[float, float, float, float, float]:
+    """(opening_w, opening_h, outer_w, outer_h, profile) in inches, as hung.
+
+    Same formula as the planner (frontend frameGeometry): opening + 2 × (mount + moulding).
+    Sizes and finishes are validated catalog IDs, so there is no fallback size.
+    """
+    size = catalog.get_frame_size(frame.size_id)
+    if size is None:  # pragma: no cover - rejected by schema validation
+        raise ValueError("unknown frame size")
+    opening_w, opening_h = size.oriented(frame.orientation)
+    profile = catalog.profile_inches(frame.finish_id)
+    mat = frame.mount.margin_in if frame.mount.enabled else 0.0
+    outer_w, outer_h = catalog.outer_size(opening_w, opening_h, profile, mat, mat, mat, mat)
+    return opening_w, opening_h, round(outer_w, 2), round(outer_h, 2), profile
 
 
 class QuoteService:
@@ -72,66 +77,26 @@ class QuoteService:
         self.whatsapp_service = whatsapp_service or WhatsAppService()
         self.report_service = report_service or QuoteReportService()
 
-    @staticmethod
-    def _parse_size(size_id: str) -> tuple[float, float]:
-        """Resolve frame opening dimensions (width, height) in inches."""
-        cleaned = size_id.lower().replace(" ", "").replace("x", "×")
-        for key, dims in STANDARD_SIZES.items():
-            if key == size_id.lower() or key.replace("x", "×") == cleaned:
-                return dims
-        # Try parse WxH
-        parts = cleaned.split("×")
-        if len(parts) == 2:
-            try:
-                return float(parts[0]), float(parts[1])
-            except ValueError:
-                pass
-        return 12.0, 16.0  # Fallback standard size
-
-    def _calculate_outer_dimensions(
-        self,
-        size_id: str,
-        orientation: str,
-        finish_id: str,
-        mount_enabled: bool,
-        mount_margin: float,
-    ) -> tuple[float, float]:
-        """Compute outer dimensions of the frame including mat and moulding."""
-        w, h = self._parse_size(size_id)
-        if orientation == "landscape":
-            w, h = h, w
-
-        profile_in = FRAME_PROFILE_WIDTHS.get(finish_id, 1.0)
-        mat_in = mount_margin if mount_enabled else 0.0
-
-        outer_w = w + 2 * (mat_in + profile_in)
-        outer_h = h + 2 * (mat_in + profile_in)
-        return round(outer_w, 2), round(outer_h, 2)
-
     async def validate_preview_image(self, file_bytes: bytes) -> tuple[str, int, int]:
         """Validate preview image format, size, and dimensions using Pillow."""
         if len(file_bytes) == 0:
             raise ValidationException(
                 message="Preview image file is empty.",
-                details=[{"field": "preview_image", "issue": "File size is 0 bytes"}],
+                details=[{"field": "file", "issue": "File size is 0 bytes"}],
             )
 
-        if len(file_bytes) > 15 * 1024 * 1024:
+        max_mb = get_settings().QUOTE_PREVIEW_MAX_MB
+        if len(file_bytes) > max_mb * 1024 * 1024:
             raise ValidationException(
-                message="Preview image is larger than 15 MB limit.",
-                details=[
-                    {
-                        "field": "preview_image",
-                        "issue": f"Image size ({len(file_bytes)} bytes) exceeds 15 MB",
-                    }
-                ],
+                message=f"Preview image is larger than {max_mb} MB.",
+                details=[{"field": "file", "issue": f"Image exceeds {max_mb} MB"}],
             )
 
         mime_type = ImageProcessingService.sniff_mime_type(file_bytes)
         if mime_type not in ("image/png", "image/webp", "image/jpeg"):
             raise ValidationException(
                 message="Preview image must be a valid PNG, WebP, or JPEG image.",
-                details=[{"field": "preview_image", "issue": "Unsupported image signature"}],
+                details=[{"field": "file", "issue": "Unsupported image signature"}],
             )
 
         try:
@@ -144,7 +109,7 @@ class QuoteService:
                         message="Preview image dimensions are too small for quotation review.",
                         details=[
                             {
-                                "field": "preview_image",
+                                "field": "file",
                                 "issue": f"Dimensions ({w}x{h}) below minimum 100x100px",
                             }
                         ],
@@ -154,7 +119,7 @@ class QuoteService:
                         message="Preview image exceeds maximum resolution of 8192x8192px.",
                         details=[
                             {
-                                "field": "preview_image",
+                                "field": "file",
                                 "issue": f"Dimensions ({w}x{h}) exceed 8192px limit",
                             }
                         ],
@@ -166,7 +131,7 @@ class QuoteService:
             logger.warning("Corrupt or invalid preview image submitted: %s", exc)
             raise ValidationException(
                 message="Corrupt or unreadable preview image.",
-                details=[{"field": "preview_image", "issue": "Image data is corrupt"}],
+                details=[{"field": "file", "issue": "Image data is corrupt"}],
             ) from exc
 
     async def prepare_quote(
@@ -185,20 +150,7 @@ class QuoteService:
             phone=current_user.phone,
         )
 
-        # 2. Validate wall dimensions and frame count
-        if design_input.wall.width_in <= 0 or design_input.wall.height_in <= 0:
-            raise ValidationException(
-                message="Wall width and height must be positive numbers.",
-                details=[{"field": "wall", "issue": "Invalid wall dimensions"}],
-            )
-
-        if not design_input.frames:
-            raise ValidationException(
-                message="At least one frame is required to request a quote.",
-                details=[{"field": "frames", "issue": "Frames array cannot be empty"}],
-            )
-
-        # 3. Validate frame specifications and photo ownership
+        # 2. Frame specifications (catalog-resolved) and photo ownership
         frame_snapshots: list[QuoteFrameSnapshot] = []
         finish_ids: list[str] = []
 
@@ -226,22 +178,14 @@ class QuoteService:
                         )
                     photo_id = str(user_photo.id)
                     photo_name = user_photo.original_filename
-                elif frame.photo.kind == "sample":
+                elif frame.photo.kind == "sample" and frame.photo.sample_id:
                     sample_id = frame.photo.sample_id
                     photo_name = frame.photo.name or f"Sample {sample_id}"
 
-            mount_enabled = frame.mount.enabled if frame.mount else True
-            mount_margin = frame.mount.margin_in if frame.mount else 2.0
-            finish_label = self.whatsapp_service.FINISH_LABELS.get(
-                frame.finish_id, frame.finish_id.replace("-", " ").title()
-            )
-
-            outer_w, outer_h = self._calculate_outer_dimensions(
-                size_id=frame.size_id,
-                orientation=frame.orientation,
-                finish_id=frame.finish_id,
-                mount_enabled=mount_enabled,
-                mount_margin=mount_margin,
+            opening_w, opening_h, outer_w, outer_h, profile = frame_dimensions(frame)
+            # No colour chosen → the planner default (Museum White).
+            mount_colour = (
+                catalog.get_mount_colour(frame.mount.colour_id) or catalog.MOUNT_COLOURS[0]
             )
 
             frame_snapshots.append(
@@ -251,14 +195,18 @@ class QuoteService:
                     size_id=frame.size_id,
                     orientation=frame.orientation,
                     finish_id=frame.finish_id,
-                    finish_name=finish_label,
+                    finish_name=catalog.finish_label(frame.finish_id),
                     width_inches=outer_w,
                     height_inches=outer_h,
+                    opening_width_inches=opening_w,
+                    opening_height_inches=opening_h,
+                    profile_inches=profile,
                     position_x_inches=frame.position_x_in or 0.0,
                     position_y_inches=frame.position_y_in or 0.0,
-                    mount_enabled=mount_enabled,
-                    mount_color_name=frame.mount.colour_id if frame.mount else "Museum White",
-                    mount_margin_inches=mount_margin,
+                    mount_enabled=frame.mount.enabled,
+                    mount_color_id=mount_colour.id,
+                    mount_color_name=mount_colour.label,
+                    mount_margin_inches=frame.mount.margin_in,
                     photo_kind=photo_kind,
                     photo_id=photo_id,
                     sample_id=sample_id,
@@ -266,7 +214,7 @@ class QuoteService:
                 )
             )
 
-        # 4. Validate preview image and sniff MIME type
+        # 3. Validate preview image and sniff MIME type
         mime_type, img_w, img_h = await self.validate_preview_image(preview_bytes)
 
         # 5. Generate unique quote reference (MQ-YYYY-XXXX) and tokens
@@ -277,7 +225,7 @@ class QuoteService:
         expires_at = datetime.now(UTC) + timedelta(days=settings.QUOTE_SHARE_EXPIRY_DAYS)
 
         # 6. Upload preview image to Cloudflare R2
-        ext = "webp" if mime_type == "image/webp" else "png"
+        ext = PREVIEW_EXTENSIONS[mime_type]
         preview_key = f"quotes/{current_user.id}/{quote_reference}/preview.{ext}"
 
         await self.r2_storage.put_object(
@@ -296,10 +244,11 @@ class QuoteService:
         wall_snapshot = QuoteWallSnapshot(
             width_inches=design_input.wall.width_in,
             height_inches=design_input.wall.height_in,
-            color_hex=design_input.wall.color_hex,
+            paint_id=design_input.wall.paint_id,
+            color_hex=design_input.effective_color_hex,
             texture=design_input.wall.texture,
-            display_unit=design_input.wall.display_unit,
-            has_sofa=design_input.wall.has_sofa,
+            display_unit=design_input.effective_display_unit,
+            has_sofa=design_input.effective_has_sofa,
         )
 
         quote_doc = QuoteInDB(
@@ -308,7 +257,7 @@ class QuoteService:
             customer=customer_snapshot,
             design_id=design_input.design_id,
             design_title=design_input.title or "Memory Wall Design",
-            layout_style=design_input.layout.style if design_input.layout else "grid",
+            layout_style=design_input.layout.style,
             wall=wall_snapshot,
             frames=frame_snapshots,
             preview_image_key=preview_key,
@@ -346,8 +295,8 @@ class QuoteService:
             quote_reference=quote_reference,
             wall_width=design_input.wall.width_in,
             wall_height=design_input.wall.height_in,
-            display_unit=design_input.wall.display_unit,
-            arrangement_style=design_input.layout.style if design_input.layout else "grid",
+            display_unit=design_input.effective_display_unit,
+            arrangement_style=design_input.layout.style,
             frame_count=len(design_input.frames),
             finish_summary=finish_summary,
             report_url=report_url,
@@ -368,7 +317,6 @@ class QuoteService:
 
     async def get_quote_by_id(self, quote_id: str, current_user: UserInDB) -> QuoteDetailResponse:
         """Authorized retrieval of quote by ID for the owner customer."""
-        settings = get_settings()
         quote = await self.quote_repo.get_by_id(quote_id)
         if not quote:
             raise ResourceNotFoundException(
@@ -383,12 +331,9 @@ class QuoteService:
                 field="id",
             )
 
-        unit = (
-            "inches"
-            if quote.wall.display_unit in ("in", "inch", "inches")
-            else quote.wall.display_unit
+        wall_size = catalog.format_wall_size(
+            quote.wall.width_inches, quote.wall.height_inches, quote.wall.display_unit
         )
-        wall_size = f"{quote.wall.width_inches:g} × {quote.wall.height_inches:g} {unit}"
         finish_ids = [f.finish_id for f in quote.frames]
         finish_summary = self.whatsapp_service.format_finish_summary(finish_ids)
         frame_specs = self.report_service.build_frame_spec_list(quote)
@@ -404,7 +349,7 @@ class QuoteService:
             wall_size=wall_size,
             frame_count=len(quote.frames),
             finish_summary=finish_summary,
-            report_url=f"{settings.PUBLIC_APP_URL}/q/{quote.share_token_prefix}",
+            report_url=None,
             preview_url=preview_url,
             customer_name=quote.customer.full_name,
             customer_phone=quote.customer.phone,

@@ -9,9 +9,10 @@ class DesignWallInDB(BaseModel):
 
     width_inches: float = Field(default=120.0, description="Wall width in inches")
     height_inches: float = Field(default=96.0, description="Wall height in inches")
+    paint_id: str | None = Field(default=None, description="Catalog paint shade ID")
     color_hex: str = Field(default="#F0EBE4", description="Wall paint color swatch")
     texture: str = Field(default="plaster_smooth", description="Wall surface texture")
-    display_unit: str = Field(default="in", description="Measurement unit (in, cm, mm, ft)")
+    display_unit: str = Field(default="in", description="Display unit (ft, in, cm, m; mm legacy)")
     has_sofa: bool = Field(default=False, description="Whether sofa clearance is enabled")
 
 

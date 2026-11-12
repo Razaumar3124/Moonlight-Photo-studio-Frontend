@@ -1,14 +1,71 @@
 from bson import ObjectId
 
 from app.core.exceptions import ValidationException
+from app.modules import catalog
 from app.repositories.catalog_repository import CatalogRepository
 from app.schemas.catalog import (
     FrameColorOut,
+    FrameFinishOut,
     FrameMaterialOut,
     FrameMaterialsListResponse,
     FrameMoldingOut,
+    FrameSizeOut,
     FramesListResponse,
+    LayoutStyleOut,
+    PlannerCatalogResponse,
+    PlannerRulesOut,
+    RangeOut,
+    SwatchOut,
 )
+
+
+def build_planner_catalog() -> PlannerCatalogResponse:
+    """The static planner catalog (app/modules/catalog.py) as an API response."""
+    rules = catalog.RULES
+    return PlannerCatalogResponse(
+        version=catalog.CATALOG_VERSION,
+        frame_sizes=[
+            FrameSizeOut(
+                id=s.id,
+                label=s.label,
+                width_inches=s.width_inches,
+                height_inches=s.height_inches,
+                recommended=s.recommended,
+            )
+            for s in catalog.FRAME_SIZES
+        ],
+        frame_finishes=[
+            FrameFinishOut(id=f.id, label=f.label, hex=f.hex, profile_inches=f.profile_inches)
+            for f in catalog.FRAME_FINISHES
+        ],
+        mount_colors=[SwatchOut(id=m.id, label=m.label, hex=m.hex) for m in catalog.MOUNT_COLOURS],
+        paint_shades=[SwatchOut(id=p.id, label=p.label, hex=p.hex) for p in catalog.PAINT_SHADES],
+        layout_styles=[
+            LayoutStyleOut(id=style_id, label=label)
+            for style_id, label in catalog.LAYOUT_STYLE_LABELS.items()
+        ],
+        template_ids=list(catalog.TEMPLATE_IDS),
+        wall_units=list(catalog.WALL_UNITS),
+        gap_units=list(catalog.GAP_UNITS),
+        rules=PlannerRulesOut(
+            eye_level_inches=rules.eye_level_inches,
+            wall_margin_inches=rules.wall_margin_inches,
+            min_bottom_inches=rules.min_bottom_inches,
+            sofa_top_from_floor_inches=round(rules.sofa_top_from_floor_inches, 4),
+            sofa_clearance_inches=rules.sofa_clearance_inches,
+            wall_width_inches=RangeOut(
+                min=rules.wall_width_min_inches, max=rules.wall_width_max_inches
+            ),
+            wall_height_inches=RangeOut(
+                min=rules.wall_height_min_inches, max=rules.wall_height_max_inches
+            ),
+            gap_inches=RangeOut(min=rules.gap_min_inches, max=rules.gap_max_inches),
+            mat_inches=RangeOut(min=rules.mat_min_inches, max=rules.mat_max_inches),
+            mat_step_inches=rules.mat_step_inches,
+            frame_count=RangeOut(min=rules.frame_count_min, max=rules.frame_count_max),
+            variant_count=rules.variant_count,
+        ),
+    )
 
 
 class CatalogService:
@@ -128,6 +185,7 @@ class CatalogService:
                 price_per_linear_inch=m.price_per_linear_inch,
                 available_colors=[
                     FrameColorOut(
+                        id=c.id,
                         name=c.name,
                         hex=c.hex,
                         profile_in=c.profile_in,

@@ -6,6 +6,7 @@ from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.models.template import LayoutTemplateInDB
+from app.modules.catalog import layout_aliases, normalize_layout
 
 
 class TemplateRepository:
@@ -38,12 +39,8 @@ class TemplateRepository:
             query["is_active"] = True
 
         if category:
-            cat_norm = category.lower().strip()
-            # Normalize centre vs focal_center for frontend-backend compatibility
-            if cat_norm in ("centre", "focal_center"):
-                query["category"] = {"$in": ["centre", "focal_center"]}
-            else:
-                query["category"] = cat_norm
+            # Stored templates may still use a legacy name for the style (e.g. focal_center).
+            query["category"] = {"$in": layout_aliases(normalize_layout(category))}
 
         if min_frames is not None or max_frames is not None:
             frames_filter: dict[str, int] = {}

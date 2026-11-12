@@ -31,7 +31,7 @@ async def list_templates(
     template_service: TemplateServiceDep,
     category: str | None = Query(
         default=None,
-        description="Filter by layout category (e.g. grid, salon, centre, row, triptych)",
+        description="Filter by layout style: grid, salon, centre or row",
         examples=["grid"],
     ),
     min_frames: int | None = Query(

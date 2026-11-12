@@ -44,6 +44,9 @@ class FrameMaterialsListResponse(BaseModel):
 class FrameColorOut(BaseModel):
     """Frame color swatch with visual hex code and face profile width."""
 
+    id: str = Field(
+        description="Stable finish ID (e.g. natural-oak); wood finishes match GET /catalog"
+    )
     name: str = Field(description="Color display name (e.g. Natural Oak, Walnut)")
     hex: str = Field(description="6-character hex color code (e.g. #916843)")
     profile_in: float = Field(description="Face width profile in inches")
@@ -52,6 +55,7 @@ class FrameColorOut(BaseModel):
         from_attributes=True,
         json_schema_extra={
             "example": {
+                "id": "natural-oak",
                 "name": "Natural Oak",
                 "hex": "#916843",
                 "profile_in": 1.0,
@@ -95,9 +99,14 @@ class FrameMoldingOut(BaseModel):
                 "rabbet_depth_inches": 0.75,
                 "price_per_linear_inch": "22.00",
                 "available_colors": [
-                    {"name": "Natural Oak", "hex": "#916843", "profile_in": 1.0},
-                    {"name": "Walnut", "hex": "#784E2D", "profile_in": 1.0},
-                    {"name": "Ivory", "hex": "#FAF3E8", "profile_in": 0.875},
+                    {
+                        "id": "natural-oak",
+                        "name": "Natural Oak",
+                        "hex": "#916843",
+                        "profile_in": 1.0,
+                    },
+                    {"id": "walnut", "name": "Walnut", "hex": "#784E2D", "profile_in": 1.0},
+                    {"id": "ivory", "name": "Ivory", "hex": "#FAF3E8", "profile_in": 0.875},
                 ],
                 "thumbnail_url": "/static/frames/oak-box.webp",
                 "is_active": True,
@@ -111,3 +120,71 @@ class FramesListResponse(BaseModel):
 
     items: list[FrameMoldingOut] = Field(default_factory=list)
     total: int = Field(description="Total count of matching frame profile records")
+
+
+# --------------------------- Planner catalog (GET /catalog) ---------------------------
+
+
+class FrameSizeOut(BaseModel):
+    """Photo opening, portrait orientation (short side first). Landscape swaps the sides."""
+
+    id: str = Field(description="Stable size ID, e.g. 12x16")
+    label: str
+    width_inches: float
+    height_inches: float
+    recommended: bool = False
+
+
+class FrameFinishOut(BaseModel):
+    id: str = Field(description="Stable finish ID, e.g. natural-oak")
+    label: str
+    hex: str
+    profile_inches: float = Field(description="Visible moulding face width added on each side")
+
+
+class SwatchOut(BaseModel):
+    id: str
+    label: str
+    hex: str
+
+
+class LayoutStyleOut(BaseModel):
+    id: str = Field(description="grid, salon, centre or row")
+    label: str
+
+
+class RangeOut(BaseModel):
+    min: float
+    max: float
+
+
+class PlannerRulesOut(BaseModel):
+    """Physical planner rules in inches. Server-side validation uses exactly these values."""
+
+    eye_level_inches: float
+    wall_margin_inches: float
+    min_bottom_inches: float
+    sofa_top_from_floor_inches: float
+    sofa_clearance_inches: float
+    wall_width_inches: RangeOut
+    wall_height_inches: RangeOut
+    gap_inches: RangeOut
+    mat_inches: RangeOut
+    mat_step_inches: float
+    frame_count: RangeOut
+    variant_count: int
+
+
+class PlannerCatalogResponse(BaseModel):
+    """Every option and rule of the Memory Wall planner, with stable IDs."""
+
+    version: str = Field(description="Catalog revision date (YYYY-MM-DD)")
+    frame_sizes: list[FrameSizeOut]
+    frame_finishes: list[FrameFinishOut]
+    mount_colors: list[SwatchOut]
+    paint_shades: list[SwatchOut]
+    layout_styles: list[LayoutStyleOut]
+    template_ids: list[str]
+    wall_units: list[str] = Field(description="Units the planner offers (API values are inches)")
+    gap_units: list[str]
+    rules: PlannerRulesOut

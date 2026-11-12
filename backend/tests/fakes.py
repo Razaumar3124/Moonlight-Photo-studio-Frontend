@@ -335,12 +335,9 @@ class FakeTemplateRepository:
             if active_only and not doc.get("is_active", True):
                 continue
             if category:
-                cat_norm = category.lower().strip()
-                doc_cat = doc.get("category", "").lower().strip()
-                if cat_norm in ("centre", "focal_center"):
-                    if doc_cat not in ("centre", "focal_center"):
-                        continue
-                elif doc_cat != cat_norm:
+                from app.modules.catalog import layout_aliases, normalize_layout
+
+                if doc.get("category") not in layout_aliases(normalize_layout(category)):
                     continue
             cnt = doc.get("slots_count", len(doc.get("slots", [])))
             if min_frames is not None and cnt < min_frames:
@@ -447,6 +444,7 @@ def populate_fake_catalog(
             name=tmpl_data["name"],
             description=tmpl_data["description"],
             category=tmpl_data["category"],
+            gap_inches=tmpl_data["gap_inches"],
             min_wall_width_inches=tmpl_data["min_wall_width_inches"],
             min_wall_height_inches=tmpl_data["min_wall_height_inches"],
             recommended_wall_width_inches=tmpl_data["recommended_wall_width_inches"],

@@ -63,15 +63,18 @@ async def test_get_shared_report_html_default(
 
     html = response.text
 
-    # Moonlight Photo Studio branding
+    # Moonlight Photo Studio branding, no third-party font requests
     assert "Moonlight Photo Studio" in html
-    assert "Bespoke Gallery Framing" in html
+    assert "Est. 1985" in html
+    assert "fonts.googleapis.com" not in html and "fonts.gstatic.com" not in html
+    assert "#9b1118" in html  # brand crimson, not SAF navy
+    assert "#0b1d33" not in html
 
     # Quote reference and design metadata
     assert quote.quote_reference in html
     assert "Salon Arrangement" in html
-    assert "6 Frames" in html
-    assert "120 × 96 inches" in html
+    assert '<div class="value">6</div>' in html
+    assert "120 × 96 in" in html
 
     # Preview image tag pointing to streaming preview route
     assert f"/quotes/share/{raw_token}/preview" in html
@@ -80,9 +83,12 @@ async def test_get_shared_report_html_default(
     assert user["full_name"] in html
     assert "••••" in html
 
-    # Frame specifications table
-    assert "Frame-by-Frame Specifications" in html
+    # Frame specifications table: catalog labels, opening as hung, mount colour label
+    assert "Frame by frame" in html
     assert "Natural Oak" in html
+    assert "12 × 16 in" in html and "16 × 12 in" in html  # portrait and landscape frames
+    assert "Museum White (2 in border)" in html
+    assert "museum-white" not in html
 
     # Strict check: No pricing or tax calculations allowed in digital design report
     assert "₹" not in html

@@ -129,11 +129,11 @@ def test_build_scene_and_eye_level():
 
     assert scene.fits is True
     assert len(scene.frames) == 4
-    # Wall height 96, eye level 57 -> eye level y = 39
-    assert scene.eye_level_y == 39.0
-    # Arrangement should be centered near eye level
+    # Wall height 96, planner eye level 60 in (frontend PLANNER_RULES) -> eye level y = 36
+    assert scene.eye_level_y == 36.0
+    # Not clamped by the margin or minimum bottom, so centred exactly on eye level
     arr_center_y = scene.arrangement.center_y
-    assert abs(arr_center_y - scene.eye_level_y) < 15.0
+    assert abs(arr_center_y - scene.eye_level_y) < 1e-6
 
 
 def test_suggest_layouts_ranking():

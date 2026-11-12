@@ -18,6 +18,10 @@ class TemplateSlotOut(BaseModel):
         description="Default recommended photo opening height in inches"
     )
     aspect_ratio: float = Field(description="Width to height ratio (width / height)")
+    size_id: str | None = Field(
+        default=None, description="Catalog frame size of the slot opening (null if not standard)"
+    )
+    orientation: str = Field(default="portrait", description="portrait or landscape")
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -29,6 +33,8 @@ class TemplateSlotOut(BaseModel):
                 "default_photo_width_inches": 12.0,
                 "default_photo_height_inches": 16.0,
                 "aspect_ratio": 0.75,
+                "size_id": "12x16",
+                "orientation": "portrait",
             }
         },
     )
@@ -41,7 +47,12 @@ class LayoutTemplateOut(BaseModel):
     slug: str = Field(description="URL and frontend friendly identifier (e.g. balanced-grid)")
     name: str = Field(description="Display title of the layout template")
     description: str = Field(description="Editorial description of the arrangement")
-    category: str = Field(description="Layout category (grid, salon, centre, row, triptych, etc.)")
+    category: str = Field(
+        description="Layout style: grid, salon, centre or row (legacy names are normalised)"
+    )
+    gap_inches: float | None = Field(
+        default=None, description="Spacing between frames (null for templates seeded earlier)"
+    )
     min_wall_width_inches: float = Field(description="Minimum wall width required in inches")
     min_wall_height_inches: float = Field(description="Minimum wall height required in inches")
     recommended_wall_width_inches: float = Field(
@@ -66,6 +77,7 @@ class LayoutTemplateOut(BaseModel):
                 "name": "Balanced Grid",
                 "description": "Nine Atelier Classic frames in a calm, even 3 x 3 grid.",
                 "category": "grid",
+                "gap_inches": 3.0,
                 "min_wall_width_inches": 80.0,
                 "min_wall_height_inches": 60.0,
                 "recommended_wall_width_inches": 120.0,

@@ -17,6 +17,8 @@ from app.models.design_version import (
     DesignVersionInDB,
     MattingInDB,
 )
+from app.modules import catalog
+from app.modules.catalog import RULES
 from app.modules.geometry.validation import validate_placed_frames
 from app.repositories.design_repository import DesignRepository
 from app.repositories.photo_repository import PhotoRepository
@@ -30,13 +32,25 @@ from app.schemas.design import (
     DesignOut,
     DesignVersionOutput,
     DesignVersionSummaryResponse,
+    DesignWallOut,
     DesignWallSchema,
-    MattingInputSchema,
+    MattingOut,
     SaveDesignVersionRequest,
     UpdateDesignRequest,
 )
 
 logger = logging.getLogger("moonlight_studio.design_service")
+
+# Tolerance for a client-supplied outer size against the server's computation.
+OUTER_SIZE_TOLERANCE_IN = 0.05
+
+
+def _wall_out(wall: DesignWallInDB) -> DesignWallOut:
+    return DesignWallOut.model_validate(wall)
+
+
+def _wall_in_db(wall: DesignWallSchema) -> DesignWallInDB:
+    return DesignWallInDB(**wall.model_dump())
 
 
 class DesignService:
@@ -56,14 +70,7 @@ class DesignService:
         req: CreateDesignRequest,
     ) -> DesignOut:
         """Create a new design draft owned by the authenticated user (EP-DSGN-01)."""
-        wall_in_db = DesignWallInDB(
-            width_inches=req.wall.width_inches,
-            height_inches=req.wall.height_inches,
-            color_hex=req.wall.color_hex,
-            texture=req.wall.texture,
-            display_unit=req.wall.display_unit,
-            has_sofa=req.wall.has_sofa,
-        )
+        wall_in_db = _wall_in_db(req.wall)
 
         now = datetime.now(UTC)
         design = DesignInDB(
@@ -88,14 +95,7 @@ class DesignService:
             user_id=saved.user_id,
             title=saved.title,
             description=saved.description,
-            wall=DesignWallSchema(
-                width_inches=saved.wall.width_inches,
-                height_inches=saved.wall.height_inches,
-                color_hex=saved.wall.color_hex,
-                texture=saved.wall.texture,
-                display_unit=saved.wall.display_unit,  # type: ignore[arg-type]
-                has_sofa=saved.wall.has_sofa,
-            ),
+            wall=_wall_out(saved.wall),
             current_version_id=saved.current_version_id,
             current_version_number=saved.current_version_number,
             status=saved.status,
@@ -157,14 +157,7 @@ class DesignService:
                             orientation=item.orientation,
                             finish_id=item.finish_id,
                             size_id=item.size_id,
-                            matting=MattingInputSchema(
-                                enabled=item.matting.enabled,
-                                top_inches=item.matting.top_inches,
-                                bottom_inches=item.matting.bottom_inches,
-                                left_inches=item.matting.left_inches,
-                                right_inches=item.matting.right_inches,
-                                color_hex=item.matting.color_hex,
-                            ),
+                            matting=MattingOut.model_validate(item.matting),
                             glass_type=item.glass_type,
                         )
                     )
@@ -194,14 +187,7 @@ class DesignService:
             title=design.title,
             description=design.description,
             status=design.status,
-            wall=DesignWallSchema(
-                width_inches=design.wall.width_inches,
-                height_inches=design.wall.height_inches,
-                color_hex=design.wall.color_hex,
-                texture=design.wall.texture,
-                display_unit=design.wall.display_unit,  # type: ignore[arg-type]
-                has_sofa=design.wall.has_sofa,
-            ),
+            wall=_wall_out(design.wall),
             current_version_id=design.current_version_id,
             current_version=version_out,
             created_at=design.created_at,
@@ -245,14 +231,7 @@ class DesignService:
                     title=d.title,
                     description=d.description,
                     status=d.status,
-                    wall=DesignWallSchema(
-                        width_inches=d.wall.width_inches,
-                        height_inches=d.wall.height_inches,
-                        color_hex=d.wall.color_hex,
-                        texture=d.wall.texture,
-                        display_unit=d.wall.display_unit,  # type: ignore[arg-type]
-                        has_sofa=d.wall.has_sofa,
-                    ),
+                    wall=_wall_out(d.wall),
                     current_version_id=d.current_version_id,
                     current_version_number=d.current_version_number,
                     items_count=items_count,
@@ -298,14 +277,7 @@ class DesignService:
         if req.status is not None:
             updates["status"] = req.status
         if req.wall is not None:
-            updates["wall"] = DesignWallInDB(
-                width_inches=req.wall.width_inches,
-                height_inches=req.wall.height_inches,
-                color_hex=req.wall.color_hex,
-                texture=req.wall.texture,
-                display_unit=req.wall.display_unit,
-                has_sofa=req.wall.has_sofa,
-            ).model_dump()
+            updates["wall"] = _wall_in_db(req.wall).model_dump()
 
         updated = await self.design_repo.update_design(design_id, updates)
         if not updated:
@@ -316,14 +288,7 @@ class DesignService:
             user_id=updated.user_id,
             title=updated.title,
             description=updated.description,
-            wall=DesignWallSchema(
-                width_inches=updated.wall.width_inches,
-                height_inches=updated.wall.height_inches,
-                color_hex=updated.wall.color_hex,
-                texture=updated.wall.texture,
-                display_unit=updated.wall.display_unit,  # type: ignore[arg-type]
-                has_sofa=updated.wall.has_sofa,
-            ),
+            wall=_wall_out(updated.wall),
             current_version_id=updated.current_version_id,
             current_version_number=updated.current_version_number,
             status=updated.status,
@@ -376,7 +341,7 @@ class DesignService:
             if item.photo_id:
                 if not ObjectId.is_valid(item.photo_id):
                     raise ValidationException(
-                        f"Invalid photo ObjectId format: '{item.photo_id}'.",
+                        "Invalid photo ID format.",
                         details=[
                             {
                                 "field": f"items.{item.item_id}.photo_id",
@@ -407,28 +372,52 @@ class DesignService:
                         field=f"items.{item.item_id}.photo_id",
                     )
 
-        # 2. Compute frame dimensions and matting
+        # 2. Resolve outer sizes from the catalog and store catalog references
         resolved_items: list[DesignItemInDB] = []
         geo_frames: list[dict[str, Any]] = []
 
         for item in req.items:
-            matting_w = (
-                (item.matting.left_inches + item.matting.right_inches)
-                if item.matting.enabled
-                else 0.0
+            mat = item.matting
+            mats = (
+                (mat.left_inches, mat.right_inches, mat.top_inches, mat.bottom_inches)
+                if mat.enabled
+                else (0.0, 0.0, 0.0, 0.0)
             )
-            matting_h = (
-                (item.matting.top_inches + item.matting.bottom_inches)
-                if item.matting.enabled
-                else 0.0
-            )
-            total_w = item.total_width_inches or round(item.photo_width_inches + matting_w, 2)
-            total_h = item.total_height_inches or round(item.photo_height_inches + matting_h, 2)
+            if item.finish_id:
+                # Authoritative: opening + mats + moulding face on both sides (frontend geometry).
+                total_w, total_h = catalog.outer_size(
+                    item.photo_width_inches,
+                    item.photo_height_inches,
+                    catalog.profile_inches(item.finish_id),
+                    *mats,
+                )
+                for supplied, computed, axis in (
+                    (item.total_width_inches, total_w, "width"),
+                    (item.total_height_inches, total_h, "height"),
+                ):
+                    if supplied is not None and abs(supplied - computed) > OUTER_SIZE_TOLERANCE_IN:
+                        raise ValidationException(
+                            "Frame outer size doesn't match its size, mount and finish.",
+                            details=[
+                                {
+                                    "field": f"items.{item.item_id}.total_{axis}_inches",
+                                    "issue": f"Expected {computed:g} for this frame",
+                                }
+                            ],
+                        )
+            else:
+                # No catalog finish (older clients): outer size as supplied, else opening + mats.
+                total_w = item.total_width_inches or round(
+                    item.photo_width_inches + mats[0] + mats[1], 4
+                )
+                total_h = item.total_height_inches or round(
+                    item.photo_height_inches + mats[2] + mats[3], 4
+                )
 
             resolved_items.append(
                 DesignItemInDB(
                     item_id=item.item_id,
-                    frame_id=item.frame_id,
+                    frame_id=item.frame_id or "custom",
                     photo_id=item.photo_id,
                     sample_id=item.sample_id,
                     position_x_inches=item.position_x_inches,
@@ -440,14 +429,7 @@ class DesignService:
                     orientation=item.orientation,
                     finish_id=item.finish_id,
                     size_id=item.size_id,
-                    matting=MattingInDB(
-                        enabled=item.matting.enabled,
-                        top_inches=item.matting.top_inches,
-                        bottom_inches=item.matting.bottom_inches,
-                        left_inches=item.matting.left_inches,
-                        right_inches=item.matting.right_inches,
-                        color_hex=item.matting.color_hex,
-                    ),
+                    matting=MattingInDB(**mat.model_dump()),
                     glass_type=item.glass_type,
                 )
             )
@@ -462,13 +444,24 @@ class DesignService:
                 }
             )
 
-        # 3. Geometry Validation using Phase 5 validator (no Groq AI calls)
+        layout_metadata = (
+            req.layout_metadata.model_dump(exclude_none=True) if req.layout_metadata else None
+        )
+        preview = req.preview.model_dump(exclude_none=True) if req.preview else None
+
+        # 3. Same fit rules as the planner: wall margin, minimum bottom or sofa clearance, no
+        # overlaps. The version's sofa toggle wins over the design-level default.
+        has_sofa = (
+            req.preview.sofa
+            if req.preview is not None and req.preview.sofa is not None
+            else design.wall.has_sofa
+        )
         geo_result = validate_placed_frames(
             wall_w=design.wall.width_inches,
             wall_h=design.wall.height_inches,
             frames=geo_frames,
-            margin_in=6.0,
-            has_sofa=design.wall.has_sofa,
+            margin_in=RULES.wall_margin_inches,
+            has_sofa=has_sofa,
         )
 
         if geo_result.errors:
@@ -500,9 +493,17 @@ class DesignService:
         # 5. Check for redundant identical snapshot
         if design.current_version_id:
             latest = await self.design_repo.get_version_by_id(design.current_version_id)
-            if latest and self._is_identical_version(
-                latest, req.layout_type, req.template_id, resolved_items
-            ):
+            candidate = DesignVersionInDB(
+                design_id=design_id,
+                version_number=0,
+                layout_type=req.layout_type,
+                template_id=req.template_id,
+                items=resolved_items,
+                bounding_box=bounding_box,
+                layout_metadata=layout_metadata,
+                preview=preview,
+            )
+            if latest and self._is_identical_version(latest, candidate):
                 logger.info(
                     "Duplicate version request ignored for '%s'; returning version %s",
                     design_id,
@@ -535,8 +536,8 @@ class DesignService:
             template_id=req.template_id,
             items=resolved_items,
             bounding_box=bounding_box,
-            layout_metadata=req.layout_metadata,
-            preview=req.preview,
+            layout_metadata=layout_metadata,
+            preview=preview,
             created_at=now,
         )
 
@@ -574,32 +575,16 @@ class DesignService:
             created_at=saved_version.created_at,
         )
 
+    @staticmethod
     def _is_identical_version(
-        self,
         latest: DesignVersionInDB,
-        layout_type: str,
-        template_id: str | None,
-        new_items: list[DesignItemInDB],
+        candidate: DesignVersionInDB,
     ) -> bool:
-        """Determine whether new version payload exactly mirrors current version snapshot."""
-        if latest.layout_type != layout_type or latest.template_id != template_id:
-            return False
-        if len(latest.items) != len(new_items):
-            return False
+        """True when `candidate` stores exactly what the current version already stores."""
 
-        for old_it, new_it in zip(latest.items, new_items, strict=False):
-            if (
-                old_it.item_id != new_it.item_id
-                or old_it.frame_id != new_it.frame_id
-                or old_it.photo_id != new_it.photo_id
-                or old_it.sample_id != new_it.sample_id
-                or abs(old_it.position_x_inches - new_it.position_x_inches) > 0.01
-                or abs(old_it.position_y_inches - new_it.position_y_inches) > 0.01
-                or abs(old_it.photo_width_inches - new_it.photo_width_inches) > 0.01
-                or abs(old_it.photo_height_inches - new_it.photo_height_inches) > 0.01
-                or old_it.orientation != new_it.orientation
-                or old_it.finish_id != new_it.finish_id
-            ):
-                return False
+        def comparable(version: DesignVersionInDB) -> dict[str, Any]:
+            return version.model_dump(
+                include={"layout_type", "template_id", "items", "layout_metadata", "preview"}
+            )
 
-        return True
+        return comparable(latest) == comparable(candidate)
