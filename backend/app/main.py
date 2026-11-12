@@ -125,7 +125,7 @@ def create_application() -> FastAPI:
         allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "Accept", CSRF_HEADER],
+        allow_headers=["Authorization", "Content-Type", "Accept", "Idempotency-Key", CSRF_HEADER],
         max_age=600,
     )
 

@@ -68,9 +68,16 @@ _REPORT_HTML_HEADERS = {
             "model": ApiErrorResponse,
             "description": "Photo ownership validation failed",
         },
+        status.HTTP_409_CONFLICT: {
+            "model": ApiErrorResponse,
+            "description": "IDEMPOTENCY_KEY_REUSED: the key belongs to a different request",
+        },
         status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "model": ApiErrorResponse,
-            "description": "Validation failure on wall dimensions or frames",
+            "description": (
+                "Validation failure on wall dimensions or frames, or the saved design "
+                "doesn't match the submitted one"
+            ),
         },
         status.HTTP_429_TOO_MANY_REQUESTS: {
             "model": ApiErrorResponse,
@@ -95,6 +102,15 @@ async def prepare_quote(
     settings: SettingsDep,
     file: UploadFile = File(description="Rendered wall preview image (PNG, WebP, or JPEG)"),
     design_data: str = Form(description="JSON string containing current wall planner state"),
+    idempotency_key: str | None = Header(
+        default=None,
+        alias="Idempotency-Key",
+        pattern=r"^[A-Za-z0-9_-]{8,64}$",
+        description=(
+            "Optional. A retry or double click with the same key returns the same quote "
+            "instead of creating another one (valid for 10 minutes)"
+        ),
+    ),
 ) -> QuotePrepareResponse:
     """Prepare a quote request via WhatsApp Click-to-Chat."""
     # 1. Enforce rate limiting
@@ -144,6 +160,7 @@ async def prepare_quote(
         current_user=current_user,
         design_input=design_input,
         preview_bytes=preview_bytes,
+        idempotency_key=idempotency_key,
     )
     return response
 

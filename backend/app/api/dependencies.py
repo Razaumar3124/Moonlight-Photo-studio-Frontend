@@ -351,6 +351,7 @@ async def get_quote_report_service() -> QuoteReportService:
 async def get_quote_service(
     quote_repo: Annotated[QuoteRepository, Depends(get_quote_repository)],
     photo_repo: Annotated[PhotoRepository, Depends(get_photo_repository)],
+    design_repo: Annotated[DesignRepository, Depends(get_design_repository)],
     r2_storage: Annotated[ObjectStorage, Depends(get_storage)],
     whatsapp_service: Annotated[WhatsAppService, Depends(get_whatsapp_service)],
     report_service: Annotated[QuoteReportService, Depends(get_quote_report_service)],
@@ -359,6 +360,7 @@ async def get_quote_service(
     return QuoteService(
         quote_repo=quote_repo,
         photo_repo=photo_repo,
+        design_repo=design_repo,
         r2_storage=r2_storage,
         whatsapp_service=whatsapp_service,
         report_service=report_service,

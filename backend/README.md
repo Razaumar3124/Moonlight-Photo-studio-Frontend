@@ -142,7 +142,7 @@ Both print the masked target first. Check it before running them against a share
 | Photos | `POST /photos/upload`, `GET /photos` (signed thumbnail + preview URLs), `GET /photos/{id}/thumbnail`, `GET /photos/{id}/preview`, `DELETE /photos/{id}` (409 `PHOTO_IN_USE` while a saved design uses it) |
 | Geometry | `POST /geometry/validate-layout`, `/geometry/generate-layout`, `/geometry/regenerate`, `/geometry/redesign` |
 | Designs | `POST /designs`, `GET /designs`, `GET/PATCH/DELETE /designs/{id}`, `POST /designs/{id}/versions` |
-| Quotes | `POST /quotes/prepare`, `GET /quotes/{id}`, `GET /quotes/share/{token}`, `GET /quotes/share/{token}/preview`; short link `GET /q/{token}` |
+| Quotes | `POST /quotes/prepare` (optional `Idempotency-Key`; the quote must match the saved design), `GET /quotes/{id}`, `GET /quotes/share/{token}`, `GET /quotes/share/{token}/preview`; short link `GET /q/{token}` |
 
 Errors use one envelope: `{"error": {"code", "message", "details": [{"field", "issue"}], "timestamp"}}`.
 Notable codes: `CSRF_VALIDATION_FAILED` (403), `RATE_LIMIT_EXCEEDED` (429 + `Retry-After`),

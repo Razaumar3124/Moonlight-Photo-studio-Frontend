@@ -10,6 +10,7 @@ const LoginPage = lazy(() => import('@/features/auth/pages/LoginPage'))
 const RegisterPage = lazy(() => import('@/features/auth/pages/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('@/features/auth/pages/ForgotPasswordPage'))
 const MemoryWallPage = lazy(() => import('@/features/memory-wall/pages/MemoryWallPage'))
+const SharedReportRedirect = lazy(() => import('@/features/quotes/pages/SharedReportRedirect'))
 const NotFoundPage = lazy(() => import('@/app/NotFoundPage'))
 
 const withSuspense = (node: ReactNode) => <Suspense fallback={<PageLoader />}>{node}</Suspense>
@@ -31,6 +32,8 @@ export const router = createBrowserRouter([
         path: ROUTES.memoryWall,
         element: <ProtectedRoute>{withSuspense(<MemoryWallPage />)}</ProtectedRoute>,
       },
+      // Public: the quote report link customers open from WhatsApp (no sign-in needed).
+      { path: `${ROUTES.sharedReport}/:token`, element: withSuspense(<SharedReportRedirect />) },
       { path: '*', element: withSuspense(<NotFoundPage />) },
     ],
   },

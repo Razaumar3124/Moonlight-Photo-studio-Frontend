@@ -10,7 +10,7 @@ What the frontend already does, and what hosting and the backend must provide.
 | Content-Security-Policy | Injected as a `<meta>` tag in production builds (`vite.config.ts` → `contentSecurityPolicy`): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: <api>; font-src 'self'; connect-src 'self' <api>; object-src 'none'; base-uri 'self'; form-action 'self'`. The API origin is added automatically when `VITE_API_BASE_URL` is absolute. |
 | Third parties           | None at runtime. Fonts are self-hosted (`@fontsource`), with no Google Fonts requests and no IP leakage to third parties.                                                                                                                                                                                                                                                                 |
 | URLs from the API       | `resolveApiUrl()` passes only http(s), protocol-relative, `blob:` and `data:image/…`. `javascript:` / `data:text/html` become harmless same-origin paths.                                                                                                                                                                                                                                 |
-| Tokens                  | Access token in memory only (`services/tokenStorage.ts`); the refresh token is an httpOnly cookie that JavaScript never sees. Legacy localStorage tokens are deleted on load. A garbled `expires_in` counts as expired. Tokens are never logged.                                                                                                                                         |
+| Tokens                  | Access token in memory only (`services/tokenStorage.ts`); the refresh token is an httpOnly cookie that JavaScript never sees. Legacy localStorage tokens are deleted on load. A garbled `expires_in` counts as expired. Tokens are never logged.                                                                                                                                          |
 | Email format            | Strict practical pattern (`identifier.ts`): no markup or quotes, no leading, trailing or double dots, valid hostname labels, alphabetic TLD, local part ≤ 64. ASCII only.                                                                                                                                                                                                                 |
 | Input                   | Client-side validation plus `maxLength` caps (identifier 254, password 128). The server must still validate everything. Client checks are for UX only.                                                                                                                                                                                                                                    |
 | Error messages          | Sign-in failures are generic ("details don't match"), never "no account with this email". 5xx bodies and exception text are never shown to the user. Route error details are logged only in development.                                                                                                                                                                                  |
@@ -41,7 +41,7 @@ exactly what Google Identity Services needs: `script-src https://accounts.google
 `style-src …/gsi/style`, `connect-src …/gsi/` and `frame-src …/gsi/`. Nothing else is opened, and
 without a client ID the CSP is unchanged. The Google popup also needs the host to send
 `Cross-Origin-Opener-Policy: same-origin-allow-popups` (a stricter `same-origin` breaks the popup).
-Add the production origin to the client's *Authorized JavaScript origins* in Google Cloud Console.
+Add the production origin to the client's _Authorized JavaScript origins_ in Google Cloud Console.
 
 ## Provided by the backend (Phase 2, 2026-11-12)
 
@@ -58,6 +58,31 @@ used to be requests (API_ALIGNMENT Q2, Q3, Q17, Q18) are done:
 - **Q18:** server-side input and body-size limits; no internals in error messages.
 - **CSRF:** `apiClient` sends `X-CSRF-Protection: 1` on every non-GET request. The cookie
   endpoints reject requests without it, or from an `Origin` outside `CORS_ORIGINS`.
+
+## Quote requests and reports (Phase 6, 2026-11-12)
+
+- **A quote is the saved design.** The planner saves first (with the customer's confirmation), then
+  sends the saved design's id; the server checks the design is the caller's and that every quoted
+  wall, layout and frame value equals the saved version. Unsaved edits can never reach a report, and
+  someone else's design id is a 403.
+- **No duplicates.** The planner holds one request key per design content and reuses it (and the
+  rendered preview) for retries; the server enforces one quote per (user, `Idempotency-Key`) with a
+  unique index, so double clicks, retries and races create one quote. A replay re-issues the share link.
+- **The WhatsApp link is untrusted input.** The client opens only `https://wa.me/…`
+  (also `api.whatsapp.com`, `web.whatsapp.com`) without credentials, and the report link only if it is
+  the app's own `/q/<token>`; anything else is dropped. "Open WhatsApp" is a normal link with
+  `rel="noopener noreferrer"`, clicked by the customer, so it isn't a blocked popup and the new tab
+  can't reach the planner. Nothing is sent automatically.
+- **Preview image.** Rendered in the browser from what's on screen, sent as multipart, and checked on
+  the server from its bytes (PNG/WebP/JPEG signature, decoded, 100–8192 px, ≤ 15 MB); SVG/HTML,
+  GIF, truncated, empty, tiny and oversize files are refused before anything is stored.
+- **The report** is public only by an unguessable token (256 bits, only a hash is stored) and expires
+  (30 days → 404). It shows the customer's name but masks mobile and email, never shows internal
+  ids or storage keys, escapes every user string, and ships a CSP with no scripts and no third-party
+  requests, `Referrer-Policy: no-referrer` and `Cache-Control: private, no-store`. The photo column
+  shows file names (so the studio can match files): don't name photos with private details.
+- **Not covered here (Phase 7):** preview files of expired quotes are not deleted from storage when the
+  database removes the quote; set a bucket lifecycle rule on the `quotes/` prefix.
 
 ## Planner data (Phase 5, 2026-11-12)
 

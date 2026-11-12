@@ -5,6 +5,8 @@ export const ROUTES = {
   register: '/register',
   forgotPassword: '/forgot-password',
   memoryWall: '/memory-wall',
+  /** Public report link prefix: `/q/<token>` (see features/quotes). */
+  sharedReport: '/q',
 } as const
 
 export type AppRoute = (typeof ROUTES)[keyof typeof ROUTES]

@@ -79,6 +79,18 @@ class AccountAlreadyExistsException(AppException):
         )
 
 
+class IdempotencyConflictException(AppException):
+    """Raised when an Idempotency-Key is reused for a different request, or has expired."""
+
+    def __init__(self, message: str):
+        super().__init__(
+            message=message,
+            code="IDEMPOTENCY_KEY_REUSED",
+            status_code=status.HTTP_409_CONFLICT,
+            details=[{"field": "Idempotency-Key", "issue": "Key already used for another request"}],
+        )
+
+
 class PhotoInUseException(AppException):
     """Raised when deleting a photo that saved designs still use."""
 

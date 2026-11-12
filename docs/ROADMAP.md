@@ -256,7 +256,27 @@ local fallbacks with live endpoints as the backend resolves API_ALIGNMENT items.
 
 Deferred to Phase 6: the quotation / WhatsApp workflow behind "Request a Quote" and report sharing.
 
-## Next: frontend Phase 6 (quotes and sharing)
+## Frontend + backend Phase 6: WhatsApp quotation & share report ✅ (2026-11-12)
 
-Phase 6 wires "Request a Quote" to `POST /quotes/prepare` (preview image, WhatsApp link, share report),
-using the saved design and its photos. The planner already blocks the action while the layout doesn't fit.
+- [x] Request a Quote (desktop header, phone bottom bar) → confirmation (design, wall, frames, customer,
+      "saved first", "no online price") → save if changed → preview render → `POST /quotes/prepare`
+      → "Open WhatsApp" (a real `wa.me` link the customer clicks and sends), copy message / report
+      link fallbacks, view report; progress, errors and retry in one dialog
+- [x] The quote is the saved design: the server checks the design is yours and matches the saved
+      version (wall, layout, every frame and photo) → 422 "save first" otherwise
+- [x] No duplicate quotes: `Idempotency-Key` (client keeps one per design content; unique index on
+      the server; replays re-issue the share link), double clicks collapse, "Create a new request" is explicit
+- [x] Public `/q/<token>` route in the app → the API-rendered report; links from the API are validated
+      before use (WhatsApp hosts only, own `/q/` links only)
+- [x] Report verified: wall, finish, mount colour, frame table, uploaded photo names, 2400 px preview,
+      masked contact, strict CSP, desktop and phone layouts, expiry → 404
+- [x] Backend: design ownership + consistency, idempotency (model, index, replay), `Idempotency-Key`
+      CORS header; removed the "quotes open soon" placeholder and the empty `features/quotes` stubs
+- [x] Frontend tests 342 → 405 (payload, links, errors, hook, service, redirect), backend 393 → 426;
+      52/52 real-browser checks and 79/79 HTTP security checks against a throwaway local database;
+      WhatsApp mocked (nothing sent)
+
+## Next: Phase 7 (deployment hardening)
+
+Real WhatsApp number and PUBLIC_APP_URL, R2 lifecycle rule for expired quote previews, `/q/*` and
+CORS in the hosting setup, monitoring, and anything left from the audits.

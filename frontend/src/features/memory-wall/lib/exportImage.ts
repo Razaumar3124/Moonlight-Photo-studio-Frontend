@@ -106,11 +106,23 @@ export function exportFileName(title: string) {
   return `${slug || 'memory-wall'}-moonlight.png`
 }
 
-export async function downloadWallPng(
+export interface WallImageOptions {
+  title: string
+  unit: LengthUnit
+  guides: boolean
+  /** PNG by default; WebP is far smaller for the quote preview when a PNG would be too big. */
+  format?: 'image/png' | 'image/webp'
+}
+
+/**
+ * Render the wall (photos inlined, guides and caption added) to an image Blob. Used by the PNG
+ * download and by Request a Quote, so the quote shows exactly what the customer sees.
+ */
+export async function renderWallImage(
   svg: SVGSVGElement,
   scene: Scene,
-  options: { title: string; unit: LengthUnit; guides: boolean },
-): Promise<void> {
+  options: WallImageOptions,
+): Promise<Blob> {
   const clone = svg.cloneNode(true) as SVGSVGElement
   const { w: W, h: H } = scene.wall
   // The drawing is the wall plus the floor band beneath it (see WallSvg / lib/room.ts).
@@ -189,18 +201,31 @@ export async function downloadWallPng(
     if (!ctx) throw new Error('Canvas is not available')
     ctx.drawImage(img, 0, 0, EXPORT_WIDTH_PX, height)
 
-    const png = await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG encoding failed'))), 'image/png'),
+    const type = options.format ?? 'image/png'
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (b) => (b ? resolve(b) : reject(new Error('Image encoding failed'))),
+        type,
+        type === 'image/webp' ? 0.9 : undefined,
+      ),
     )
-    const pngUrl = URL.createObjectURL(png)
-    const a = document.createElement('a')
-    a.href = pngUrl
-    a.download = exportFileName(options.title)
-    document.body.append(a)
-    a.click()
-    a.remove()
-    window.setTimeout(() => URL.revokeObjectURL(pngUrl), 10_000)
   } finally {
     URL.revokeObjectURL(svgUrl)
   }
+}
+
+export async function downloadWallPng(
+  svg: SVGSVGElement,
+  scene: Scene,
+  options: { title: string; unit: LengthUnit; guides: boolean },
+): Promise<void> {
+  const png = await renderWallImage(svg, scene, { ...options, format: 'image/png' })
+  const pngUrl = URL.createObjectURL(png)
+  const a = document.createElement('a')
+  a.href = pngUrl
+  a.download = exportFileName(options.title)
+  document.body.append(a)
+  a.click()
+  a.remove()
+  window.setTimeout(() => URL.revokeObjectURL(pngUrl), 10_000)
 }

@@ -8,10 +8,15 @@ from bson import ObjectId
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 from pymongo.asynchronous.collection import AsyncCollection
 from pymongo.asynchronous.database import AsyncDatabase
+from pymongo.errors import DuplicateKeyError
 
 from app.models.quote import QuoteInDB
 
 logger = logging.getLogger("moonlight_studio.quote_repository")
+
+
+class DuplicateQuoteError(Exception):
+    """A quote with the same (user, idempotency key) already exists (a concurrent retry won)."""
 
 
 class QuoteRepository:
@@ -46,7 +51,14 @@ class QuoteRepository:
                 [("status", ASCENDING)],
                 name="idx_quotes_status",
             )
-            # 5. MongoDB TTL index for automated expiry cleanup
+            # 5. One quote per (user, idempotency key): retries and double clicks can't duplicate
+            await self.collection.create_index(
+                [("user_id", ASCENDING), ("idempotency_key", ASCENDING)],
+                unique=True,
+                partialFilterExpression={"idempotency_key": {"$type": "string"}},
+                name="idx_quotes_user_idempotency",
+            )
+            # 6. MongoDB TTL index for automated expiry cleanup
             await self.collection.create_index(
                 [("expires_at", ASCENDING)],
                 expireAfterSeconds=0,
@@ -75,8 +87,31 @@ class QuoteRepository:
         doc = quote.model_dump(by_alias=True)
         doc["_id"] = str(quote.id)
         doc["user_id"] = str(quote.user_id)
-        await self.collection.insert_one(doc)
+        try:
+            await self.collection.insert_one(doc)
+        except DuplicateKeyError as exc:
+            if "idempotency" in str(exc):
+                raise DuplicateQuoteError from exc
+            raise
         return quote
+
+    async def get_by_idempotency_key(self, user_id: str, key: str) -> QuoteInDB | None:
+        """The user's quote created with this idempotency key, if any."""
+        doc = await self.collection.find_one({"user_id": str(user_id), "idempotency_key": key})
+        return QuoteInDB(**doc) if doc else None
+
+    async def replace_share_token(self, quote_id: str, token_hash: str, prefix: str) -> None:
+        """Swap the share token (used when a retried request must hand out a link again)."""
+        await self.collection.update_one(
+            {"_id": str(quote_id)},
+            {
+                "$set": {
+                    "share_token_hash": token_hash,
+                    "share_token_prefix": prefix,
+                    "updated_at": datetime.now(UTC),
+                }
+            },
+        )
 
     async def get_by_id(self, quote_id: str) -> QuoteInDB | None:
         """Retrieve quote by MongoDB ObjectId or quote_reference."""

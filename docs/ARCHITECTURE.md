@@ -217,6 +217,13 @@ frame configs → outer sizes (opening + mat + moulding)
 - **Designs:** `lib/designMapper` converts planner state ⇄ API (positions from the scene; the server
   recomputes outer sizes), `lib/designSave` does create / new version / update with rollback, and
   `useDesignList` + `useDesignPreview` drive My Designs. Saving is blocked while the layout doesn't fit.
+- **Quotes (Phase 6):** `hooks/useQuoteRequest` runs _save (if changed) → render the wall preview
+  (`exportImage.renderWallImage`, with guides) → `POST /quotes/prepare` (`quotesService`)_ and hands
+  back the WhatsApp link, which `QuoteDialog` shows as a normal link to open and send. One attempt
+  per design content keeps its `Idempotency-Key`, preview and result, so retries and reopening
+  never create a second quote. `lib/quoteRequest` builds the payload from the same state and ids as
+  the saved version, validates the returned links and maps errors. `/q/<token>` is a public route
+  (`features/quotes`) that moves the browser to the API-rendered report.
 - **Unsaved work:** `lib/plannerDraft` keeps the planner (design content only) in `sessionStorage`
   for this tab and user, so a reload or an expired session never loses it; a deliberate sign-out
   deletes it (`lib/sessionData`).

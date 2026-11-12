@@ -769,11 +769,31 @@ class FakeQuoteRepository:
                 issue="Simulated database failure",
             )
 
+        from app.repositories.quote_repository import DuplicateQuoteError
+
+        if quote.idempotency_key and any(
+            q.get("user_id") == str(quote.user_id)
+            and q.get("idempotency_key") == quote.idempotency_key
+            for q in self.quotes.values()
+        ):
+            raise DuplicateQuoteError
+
         doc = quote.model_dump(by_alias=True)
         doc["_id"] = str(quote.id)
         doc["user_id"] = str(quote.user_id)
         self.quotes[str(quote.id)] = doc
         return quote
+
+    async def get_by_idempotency_key(self, user_id: str, key: str) -> QuoteInDB | None:
+        for q in self.quotes.values():
+            if q.get("user_id") == str(user_id) and q.get("idempotency_key") == key:
+                return QuoteInDB(**q)
+        return None
+
+    async def replace_share_token(self, quote_id: str, token_hash: str, prefix: str) -> None:
+        doc = self.quotes[str(quote_id)]
+        doc["share_token_hash"] = token_hash
+        doc["share_token_prefix"] = prefix
 
     async def get_by_id(self, quote_id: str) -> QuoteInDB | None:
         qid = str(quote_id)

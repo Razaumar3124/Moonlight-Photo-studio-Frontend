@@ -32,7 +32,7 @@ import { toPhotoRef } from './photos'
 const ITEM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 
 /** The server wants unique, URL-safe item ids; the planner's own ids already are, but never trust that. */
-function itemIds(frames: readonly FrameConfig[]): string[] {
+export function itemIds(frames: readonly FrameConfig[]): string[] {
   const used = new Set<string>()
   return frames.map((f, i) => {
     let id = ITEM_ID_RE.test(f.id) ? f.id : `f${i + 1}`
@@ -52,9 +52,14 @@ export function toDesignWall(state: PlannerState): DesignWallInput {
   }
 }
 
+/** What the frame shows: its own photo, or the "fill" sample when that preview option is on. */
+export function shownPhoto(frame: FrameConfig, index: number, fillWithSamples: boolean): PhotoRef | null {
+  return frame.photo ?? (fillWithSamples ? sampleFor(index, frame.orientation) : null)
+}
+
 function photoFields(frame: FrameConfig, index: number, fillWithSamples: boolean) {
   // What the user sees is what is saved: an empty frame showing a "fill" sample keeps that sample.
-  const ref: PhotoRef | null = frame.photo ?? (fillWithSamples ? sampleFor(index, frame.orientation) : null)
+  const ref = shownPhoto(frame, index, fillWithSamples)
   if (ref?.kind === 'upload') return { photo_id: ref.photoId }
   if (ref?.kind === 'sample') return { sample_id: ref.sampleId }
   return {}

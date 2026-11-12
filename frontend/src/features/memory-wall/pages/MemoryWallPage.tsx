@@ -13,6 +13,7 @@ import { MobileSheet, SidePanel, type SheetTab, type SidePanelTab } from '../com
 import { CatalogGate } from '../components/CatalogGate'
 import { FullscreenPreviewDialog } from '../components/dialogs/FullscreenPreviewDialog'
 import { SaveDesignDialog } from '../components/dialogs/SaveDesignDialog'
+import { QuoteDialog } from '../components/dialogs/QuoteDialog'
 import { SavedDesignsDialog } from '../components/dialogs/SavedDesignsDialog'
 import { TemplatesDialog } from '../components/dialogs/TemplatesDialog'
 import { FrameInspector } from '../components/FramePanels'
@@ -21,6 +22,7 @@ import { Rail } from '../components/RailSection'
 import { Stage } from '../components/Stage'
 import { LAYOUT_STYLES } from '../constants'
 import { PhotoLibraryContext, usePhotoLibrary } from '../hooks/usePhotoLibrary'
+import { useQuoteRequest } from '../hooks/useQuoteRequest'
 import { usePlanner } from '../hooks/usePlanner'
 import { designFingerprint, fromDesignDetail } from '../lib/designMapper'
 import { describeSaveError, NEW_DESIGN, saveDesign, sessionFor, type DesignSession } from '../lib/designSave'
@@ -295,6 +297,25 @@ function PlannerWorkspace() {
     })
   }
 
+  /** Save the design if it changed, for Request a Quote (the quote needs the saved design). */
+  const ensureSaved = async (title: string): Promise<DesignSession> => {
+    if (!dirty && session.designId) return session
+    const named: PlannerState = { ...state, title }
+    const result = await saveDesign({ state: named, scene, session })
+    dispatch({ type: 'design/rename', title })
+    setSession(result.session)
+    return result.session
+  }
+
+  const quote = useQuoteRequest({
+    state,
+    scene,
+    session,
+    needsSave: dirty || !session.designId,
+    svgRef,
+    ensureSaved,
+  })
+
   const handleQuote = () => {
     if (fitProblem) {
       toast({
@@ -304,10 +325,14 @@ function PlannerWorkspace() {
       })
       return
     }
-    toast({
-      message: 'Quote requests open soon. Save your design now and request a quote from it later.',
-      action: { label: 'Save design', onClick: requestSave },
-    })
+    if (missingPhotos) {
+      toast({
+        tone: 'error',
+        message: `${missingPhotos} ${missingPhotos === 1 ? 'photo is' : 'photos are'} no longer in your library. Replace or remove ${missingPhotos === 1 ? 'it' : 'them'} before requesting a quote.`,
+      })
+      return
+    }
+    quote.open()
   }
 
   // Selecting a frame on the wall also brings its editor forward on tablets and phones.
@@ -465,6 +490,23 @@ function PlannerWorkspace() {
           onSaveCurrent={requestSave}
           onOpenDesign={(design) => void handleOpenDesign(design)}
           onDeleted={handleDesignDeleted}
+        />
+        <QuoteDialog
+          quote={quote}
+          design={{
+            title: state.title,
+            widthIn: state.wall.widthIn,
+            heightIn: state.wall.heightIn,
+            unit: state.displayUnit,
+            frameCount: state.frames.length,
+          }}
+          isNew={session.designId === null}
+          needsSave={dirty || !session.designId}
+          contact={{
+            name: user?.full_name ?? '',
+            phone: user?.phone ?? null,
+            email: user?.email ?? '',
+          }}
         />
         <SaveDesignDialog
           open={dialog === 'save'}

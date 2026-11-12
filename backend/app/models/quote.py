@@ -108,6 +108,13 @@ class QuoteInDB(BaseModel):
         default="draft",
         description="Quote status: draft, pending_review, contacted, converted, expired",
     )
+    idempotency_key: str | None = Field(
+        default=None,
+        description="Client key that makes retries of the same request return this quote",
+    )
+    request_fingerprint: str | None = Field(
+        default=None, description="Hash of the design payload the idempotency key was used with"
+    )
     expires_at: datetime = Field(description="UTC timestamp after which share link is invalid")
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

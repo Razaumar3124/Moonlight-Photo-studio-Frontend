@@ -15,6 +15,10 @@ import type { DisplayUnit, LayoutType } from './designs'
 export interface QuoteDesignData {
   /** ≤ 100 characters. */
   title?: string
+  /**
+   * The saved design being quoted. When given it must be yours and the quote must match its current
+   * version, otherwise 422 `designId` ("save it, then request the quote").
+   */
   designId?: EntityId | null
   displayUnit?: DisplayUnit
   preview?: { sofa?: boolean }
@@ -40,6 +44,9 @@ export interface QuoteDesignData {
       photoId?: EntityId
       name?: string
     } | null
+    /** Outer top-left position on the wall, inches (for the studio's reference). */
+    x?: number
+    y?: number
   }>
 }
 
