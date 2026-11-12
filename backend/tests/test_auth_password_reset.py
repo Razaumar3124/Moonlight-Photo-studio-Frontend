@@ -20,7 +20,7 @@ async def setup_reset_user(fake_user_repo: FakeUserRepository):
     now = datetime.now(UTC)
     user = UserInDB(
         _id=str(ObjectId()),
-        email="customer.reset@safstudio.com",
+        email="customer.reset@example.com",
         phone="+919876543210",
         password_hash=hash_password("OriginalPassword123!"),
         full_name="Aarav Sharma",
@@ -37,7 +37,7 @@ async def test_forgot_password_registered_email(
     client: AsyncClient, fake_session_repo: FakeSessionRepository
 ):
     """EP-AUTH-06: Registered email receives 200 OK, OTP record in DB, and email dispatched."""
-    payload = {"email": "customer.reset@safstudio.com"}
+    payload = {"email": "customer.reset@example.com"}
     response = await client.post("/api/v1/auth/forgot-password", json=payload)
     assert response.status_code == 200
 
@@ -48,13 +48,13 @@ async def test_forgot_password_registered_email(
     # Verify email was dispatched via EmailService mock
     assert len(email_service.mock_sent_emails) == 1
     sent_mail = email_service.mock_sent_emails[0]
-    assert sent_mail["to"] == "customer.reset@safstudio.com"
+    assert sent_mail["to"] == "customer.reset@example.com"
     otp_code = sent_mail["otp_code"]
     assert len(otp_code) == 6
     assert otp_code.isdigit()
 
     # Verify OTP challenge was recorded in DB
-    active_otp = await fake_session_repo.get_active_otp("customer.reset@safstudio.com")
+    active_otp = await fake_session_repo.get_active_otp("customer.reset@example.com")
     assert active_otp is not None
     assert active_otp.purpose == "email_otp"
     assert active_otp.used is False
@@ -66,7 +66,7 @@ async def test_forgot_password_unregistered_email_non_enumerating(
     client: AsyncClient, fake_session_repo: FakeSessionRepository
 ):
     """EP-AUTH-06: Unknown email returns identical 200 without creating OTP or sending email."""
-    payload = {"email": "nonexistent.user@safstudio.com"}
+    payload = {"email": "nonexistent.user@example.com"}
     response = await client.post("/api/v1/auth/forgot-password", json=payload)
     assert response.status_code == 200
 
@@ -89,7 +89,7 @@ async def test_forgot_password_invalid_email_format(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_forgot_password_cooldown_enforcement(client: AsyncClient):
     """EP-AUTH-06: Requesting OTP before 60s cooldown expires returns 429 Too Many Requests."""
-    payload = {"email": "customer.reset@safstudio.com"}
+    payload = {"email": "customer.reset@example.com"}
 
     first_resp = await client.post("/api/v1/auth/forgot-password", json=payload)
     assert first_resp.status_code == 200
@@ -106,7 +106,7 @@ async def test_verify_otp_success(client: AsyncClient, fake_session_repo: FakeSe
     """EP-AUTH-07: Submitting valid OTP consumes challenge and returns single-use reset token."""
     # 1. Request OTP
     req_resp = await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
+        "/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"}
     )
     assert req_resp.status_code == 200
     otp_code = email_service.mock_sent_emails[0]["otp_code"]
@@ -114,7 +114,7 @@ async def test_verify_otp_success(client: AsyncClient, fake_session_repo: FakeSe
     # 2. Verify OTP
     verify_resp = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     assert verify_resp.status_code == 200
     data = verify_resp.json()
@@ -123,20 +123,18 @@ async def test_verify_otp_success(client: AsyncClient, fake_session_repo: FakeSe
     assert data["expires_in_seconds"] == 600
 
     # 3. Verify OTP in DB is marked used
-    active_otp = await fake_session_repo.get_active_otp("customer.reset@safstudio.com")
+    active_otp = await fake_session_repo.get_active_otp("customer.reset@example.com")
     assert active_otp is None
 
 
 @pytest.mark.asyncio
 async def test_verify_otp_invalid_code_decrements_attempts(client: AsyncClient):
     """EP-AUTH-07: Submitting wrong OTP returns 400/422 with remaining attempts."""
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
 
     verify_resp = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": "000000"},
+        json={"email": "customer.reset@example.com", "otp": "000000"},
     )
     assert verify_resp.status_code in (400, 422)
     err = verify_resp.json().get("error") or verify_resp.json().get("detail")
@@ -146,16 +144,14 @@ async def test_verify_otp_invalid_code_decrements_attempts(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_verify_otp_max_attempts_lockout(client: AsyncClient):
     """EP-AUTH-07: 3 incorrect attempts permanently locks the OTP challenge."""
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
 
     # 3 attempts with incorrect code: 3rd attempt locks with max attempts exceeded
     last_resp = None
     for _ in range(3):
         last_resp = await client.post(
             "/api/v1/auth/forgot-password/verify",
-            json={"email": "customer.reset@safstudio.com", "otp": "111111"},
+            json={"email": "customer.reset@example.com", "otp": "111111"},
         )
         assert last_resp.status_code in (400, 422)
 
@@ -166,9 +162,7 @@ async def test_verify_otp_max_attempts_lockout(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_verify_otp_expired(client: AsyncClient, fake_session_repo: FakeSessionRepository):
     """EP-AUTH-07: Verifying an expired OTP returns 400/422 Bad Request."""
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
     otp_code = email_service.mock_sent_emails[0]["otp_code"]
 
     # Artificially expire the OTP
@@ -178,7 +172,7 @@ async def test_verify_otp_expired(client: AsyncClient, fake_session_repo: FakeSe
 
     verify_resp = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     assert verify_resp.status_code in (400, 422)
     err = verify_resp.json().get("error") or verify_resp.json().get("detail")
@@ -188,22 +182,20 @@ async def test_verify_otp_expired(client: AsyncClient, fake_session_repo: FakeSe
 @pytest.mark.asyncio
 async def test_verify_otp_cannot_reuse(client: AsyncClient):
     """EP-AUTH-07: An already consumed OTP cannot be redeemed a second time."""
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
     otp_code = email_service.mock_sent_emails[0]["otp_code"]
 
     # First verify: 200 OK
     first = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     assert first.status_code == 200
 
     # Second verify: 400/422
     second = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     assert second.status_code in (400, 422)
 
@@ -212,15 +204,13 @@ async def test_verify_otp_cannot_reuse(client: AsyncClient):
 async def test_complete_recovery_flow_and_login_with_new_password(client: AsyncClient):
     """EP-AUTH-06, EP-AUTH-07, EP-AUTH-08: Full end-to-end recovery updates password."""
     # 1. Request OTP
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
     otp_code = email_service.mock_sent_emails[0]["otp_code"]
 
     # 2. Verify OTP
     verify_resp = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     assert verify_resp.status_code == 200
     reset_token = verify_resp.json()["reset_token"]
@@ -237,14 +227,14 @@ async def test_complete_recovery_flow_and_login_with_new_password(client: AsyncC
     # 4. Old password should now fail login
     old_login = await client.post(
         "/api/v1/auth/login",
-        json={"identifier": "customer.reset@safstudio.com", "password": "OriginalPassword123!"},
+        json={"identifier": "customer.reset@example.com", "password": "OriginalPassword123!"},
     )
     assert old_login.status_code == 401
 
     # 5. New password should successfully login
     new_login = await client.post(
         "/api/v1/auth/login",
-        json={"identifier": "customer.reset@safstudio.com", "password": new_password},
+        json={"identifier": "customer.reset@example.com", "password": new_password},
     )
     assert new_login.status_code == 200
     assert "tokens" in new_login.json()
@@ -253,14 +243,12 @@ async def test_complete_recovery_flow_and_login_with_new_password(client: AsyncC
 @pytest.mark.asyncio
 async def test_reset_password_rejects_reused_password(client: AsyncClient):
     """EP-AUTH-08: Submitting the current password is rejected with 400 Bad Request."""
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
     otp_code = email_service.mock_sent_emails[0]["otp_code"]
 
     verify_resp = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     reset_token = verify_resp.json()["reset_token"]
 
@@ -277,14 +265,12 @@ async def test_reset_password_rejects_reused_password(client: AsyncClient):
 @pytest.mark.asyncio
 async def test_reset_password_token_single_use(client: AsyncClient):
     """EP-AUTH-08: Reset token is consumed atomically and cannot be reused."""
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
     otp_code = email_service.mock_sent_emails[0]["otp_code"]
 
     verify_resp = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     reset_token = verify_resp.json()["reset_token"]
 
@@ -309,7 +295,7 @@ async def test_password_reset_revokes_previous_access_tokens(client: AsyncClient
     # 1. Login with original password and get access token
     login_resp = await client.post(
         "/api/v1/auth/login",
-        json={"identifier": "customer.reset@safstudio.com", "password": "OriginalPassword123!"},
+        json={"identifier": "customer.reset@example.com", "password": "OriginalPassword123!"},
     )
     assert login_resp.status_code == 200
     old_access_token = login_resp.json()["tokens"]["access_token"]
@@ -322,14 +308,12 @@ async def test_password_reset_revokes_previous_access_tokens(client: AsyncClient
 
     # 3. Execute password reset
     rate_limiter.clear_all()
-    await client.post(
-        "/api/v1/auth/forgot-password", json={"email": "customer.reset@safstudio.com"}
-    )
+    await client.post("/api/v1/auth/forgot-password", json={"email": "customer.reset@example.com"})
     otp_code = email_service.mock_sent_emails[-1]["otp_code"]
 
     verify_resp = await client.post(
         "/api/v1/auth/forgot-password/verify",
-        json={"email": "customer.reset@safstudio.com", "otp": otp_code},
+        json={"email": "customer.reset@example.com", "otp": otp_code},
     )
     reset_token = verify_resp.json()["reset_token"]
 

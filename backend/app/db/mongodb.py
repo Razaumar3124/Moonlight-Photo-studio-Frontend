@@ -5,13 +5,17 @@ from typing import Any
 import certifi
 from pymongo import AsyncMongoClient
 from pymongo.asynchronous.database import AsyncDatabase
-from pymongo.errors import ConnectionFailure, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import (
+    ConnectionFailure,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import DatabaseUnavailableException
 from app.core.logging import sanitize_sensitive_data
 
-logger = logging.getLogger("saf_studio.db")
+logger = logging.getLogger("moonlight_studio.db")
 
 
 class MongoManager:

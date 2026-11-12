@@ -162,6 +162,21 @@ class InvalidGoogleTokenException(AppException):
         )
 
 
+class GoogleAuthNotConfiguredException(AppException):
+    """Raised when Google sign-in is attempted but GOOGLE_CLIENT_ID is not configured.
+
+    Without a client ID the token audience can't be checked, so ID tokens issued to any
+    other Google application would be accepted. Fail closed instead.
+    """
+
+    def __init__(self, message: str = "Google sign-in is not available right now."):
+        super().__init__(
+            message=message,
+            code="GOOGLE_AUTH_NOT_CONFIGURED",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+
 class RateLimitExceededException(AppException):
     """Raised when a client exceeds rate limits."""
 

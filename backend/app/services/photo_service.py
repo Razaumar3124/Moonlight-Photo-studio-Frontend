@@ -21,9 +21,9 @@ from app.schemas.photo import (
 )
 from app.services.image_processing_service import ImageProcessingService
 from app.services.rate_limiter import rate_limiter
-from app.storage.r2_storage import R2Storage
+from app.storage import ObjectStorage
 
-logger = logging.getLogger("saf_studio.photo_service")
+logger = logging.getLogger("moonlight_studio.photo_service")
 
 
 class PhotoService:
@@ -33,7 +33,7 @@ class PhotoService:
         self,
         photo_repo: PhotoRepository,
         image_service: ImageProcessingService,
-        r2_storage: R2Storage,
+        r2_storage: ObjectStorage,
     ) -> None:
         self.photo_repo = photo_repo
         self.image_service = image_service

@@ -154,3 +154,34 @@ align="center" titleTone="brand" compact`), register ornaments, register hero
 
 `services/<domain>.ts` modules, auth provider + protected routes, React Query, and replacing
 local fallbacks with live endpoints as the backend resolves API_ALIGNMENT items.
+
+---
+
+# Backend Roadmap
+
+`backend/` started as a copy of the SAF Studio FastAPI backend. Details: [backend/README.md](../backend/README.md).
+
+## Backend Phase 1: Separate from SAF Studio ✅ (2026-11-12)
+
+- [x] `uv sync` fixed (application mode, OneDrive copy link-mode, undeclared runtime deps); lock verified
+- [x] SAF credentials removed from `backend/.env`; Moonlight development config with generated secrets,
+      local MongoDB `moonlight_studio`, offline integrations; documented `.env.example`
+- [x] Production configuration guard (secrets, DEBUG, R2, Resend, WhatsApp number, https URL); errors
+      never echo values
+- [x] Rebrand to Moonlight Photo Studio: API metadata, logs, OTP email, WhatsApp message, quote report,
+      file names, `MQ-` quote references, seeder, scripts, tests, README
+- [x] `STORAGE_BACKEND=local`: confined, atomic file storage with HMAC-signed expiring downloads; R2 unchanged
+- [x] Fixes: Google sign-in fails closed without `GOOGLE_CLIENT_ID` (was: any audience accepted); Resend
+      test-mode errors no longer reveal the test inbox
+- [x] Hermetic tests (no `.env`, network blocked); 38 → 0 Ruff issues; dead code removed; 264 tests
+
+## Backend Phase 2: Security hardening (next)
+
+Trusted-proxy client IP, login/OTP rate limiting (per IP + identifier, shared store), real dummy hash
+for timing, request-size limits on uploads, protect `/health`, no exception text in API errors,
+atomic refresh rotation, cookie-only refresh token, `HTTP_422_UNPROCESSABLE_CONTENT` migration.
+
+## Backend Phase 3+: Contract alignment & frontend wiring
+
+Catalog IDs and validation limits shared with the planner, `display_unit` `m`, quote sizes/finishes
+from the catalog, string `EntityId`, regenerated `API_CONTRACT.md`, then the frontend Phase 5 wiring.

@@ -36,7 +36,7 @@ from app.schemas.design import (
     UpdateDesignRequest,
 )
 
-logger = logging.getLogger("saf_studio.design_service")
+logger = logging.getLogger("moonlight_studio.design_service")
 
 
 class DesignService:

@@ -1,7 +1,7 @@
 """WhatsApp Click-to-Chat integration and formatted message composer.
 
 Constructs official WhatsApp Click-to-Chat URLs (wa.me) with prefilled,
-structured message summaries for SAF Studio Memory Wall quote requests.
+structured message summaries for Moonlight Photo Studio Memory Wall quote requests.
 """
 
 import urllib.parse
@@ -77,7 +77,7 @@ class WhatsAppService:
         customer_mobile: str | None = None,
         customer_email: str | None = None,
     ) -> str:
-        """Compose clean, professional WhatsApp quote request message matching SAF branding."""
+        """Compose the WhatsApp quote request message in Moonlight Photo Studio's voice."""
         unit_label = "inches" if display_unit in ("in", "inch", "inches") else display_unit
 
         # Format dimensions cleanly (avoid 120.0 if integer)
@@ -100,7 +100,7 @@ class WhatsAppService:
         contact_text = "\n".join(contact_lines)
 
         message = (
-            "Hello SAF Studio! 👋\n\n"
+            "Hello Moonlight Photo Studio! 👋\n\n"
             "I'd like to request a quote for my Memory Wall design.\n\n"
             "*DESIGN DETAILS*\n"
             f"• Reference: {quote_reference}\n"

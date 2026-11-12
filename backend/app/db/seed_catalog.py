@@ -13,7 +13,7 @@ from app.models.template import LayoutTemplateInDB, TemplateSlotInDB
 from app.repositories.catalog_repository import CatalogRepository
 from app.repositories.template_repository import TemplateRepository
 
-logger = logging.getLogger("saf_studio.seed")
+logger = logging.getLogger("moonlight_studio.seed")
 
 
 def _slot(slot_id: str, x: float, y: float, w: float, h: float) -> dict[str, Any]:
@@ -505,7 +505,7 @@ async def seed_catalogs_and_templates(
 
 async def main() -> None:
     """CLI entrypoint for standalone catalog seeding."""
-    parser = argparse.ArgumentParser(description="SAF Studio Catalog & Template Seeder")
+    parser = argparse.ArgumentParser(description="Moonlight Photo Studio Catalog & Template Seeder")
     parser.add_argument(
         "--overwrite",
         action="store_true",
@@ -514,6 +514,12 @@ async def main() -> None:
     args = parser.parse_args()
 
     settings = get_settings()
+    from app.core.logging import sanitize_sensitive_data
+
+    print(
+        f"Seeding {sanitize_sensitive_data(settings.MONGODB_URL)} / {settings.DATABASE_NAME}"
+        f"{' (overwrite)' if args.overwrite else ' (add missing only)'}"
+    )
     await mongo_manager.connect(settings)
     db = mongo_manager.get_database()
     try:

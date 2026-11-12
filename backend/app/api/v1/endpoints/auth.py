@@ -316,6 +316,10 @@ async def reset_password(
             "description": "Invalid Google token",
         },
         status.HTTP_403_FORBIDDEN: {"model": ApiErrorResponse, "description": "Account disabled"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {
+            "model": ApiErrorResponse,
+            "description": "Google sign-in is not configured (GOOGLE_CLIENT_ID missing)",
+        },
     },
     summary="Authenticate using Google identity",
     description=(

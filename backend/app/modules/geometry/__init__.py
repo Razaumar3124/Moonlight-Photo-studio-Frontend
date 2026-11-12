@@ -1,4 +1,4 @@
-"""SAF Studio Computational Geometry & Layout Engine."""
+"""Moonlight Photo Studio Computational Geometry & Layout Engine."""
 
 from app.modules.geometry.layouts import (
     LAYOUT_ENGINES,

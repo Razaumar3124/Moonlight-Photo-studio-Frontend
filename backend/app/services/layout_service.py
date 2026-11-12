@@ -34,7 +34,7 @@ from app.schemas.geometry import (
 from app.services.ai_usage_service import AIUsageService
 from app.services.photo_analysis_service import PhotoAnalysisService
 
-logger = logging.getLogger("saf_studio.layout_service")
+logger = logging.getLogger("moonlight_studio.layout_service")
 
 
 class LayoutService:

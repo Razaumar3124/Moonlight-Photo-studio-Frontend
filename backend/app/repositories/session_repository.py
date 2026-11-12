@@ -129,13 +129,6 @@ class SessionRepository:
             created_at=doc["created_at"],
         )
 
-    async def get_password_reset_by_hash(self, token_hash: str) -> PasswordResetInDB | None:
-        """Find a password reset token by its SHA-256 hash."""
-        doc = await self.password_resets.find_one({"token_hash": token_hash})
-        if not doc:
-            return None
-        return self._doc_to_password_reset(doc)
-
     async def get_active_otp(self, email: str) -> PasswordResetInDB | None:
         """Find active unexpired, unused email OTP challenge record."""
         now = datetime.now(UTC)
@@ -205,11 +198,3 @@ class SessionRepository:
             return_document=ReturnDocument.AFTER,
         )
         return self._doc_to_password_reset(doc) if doc else None
-
-    async def mark_password_reset_used(self, reset_id: str) -> None:
-        """Mark a password reset token as redeemed."""
-        if ObjectId.is_valid(reset_id):
-            await self.password_resets.update_one(
-                {"_id": ObjectId(reset_id)},
-                {"$set": {"used": True}},
-            )

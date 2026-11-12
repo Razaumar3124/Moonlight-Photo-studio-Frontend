@@ -122,17 +122,6 @@ class FakeSessionRepository:
         self.password_resets[reset.token_hash] = doc
         return reset
 
-    async def get_password_reset_by_hash(self, token_hash: str) -> PasswordResetInDB | None:
-        doc = self.password_resets.get(token_hash)
-        if not doc:
-            return None
-        return PasswordResetInDB(**doc)
-
-    async def mark_password_reset_used(self, reset_id: str) -> None:
-        for doc in self.password_resets.values():
-            if str(doc["_id"]) == str(reset_id):
-                doc["used"] = True
-
     async def get_active_otp(self, email: str) -> PasswordResetInDB | None:
         norm = email.strip().lower()
         now = datetime.now(UTC)
@@ -523,7 +512,7 @@ class FakeR2Storage:
 
     def __init__(self) -> None:
         self.objects: dict[str, tuple[bytes, str, dict]] = {}
-        self.bucket_name = "saf-studio-photos-test"
+        self.bucket_name = "moonlight-studio-photos-test"
         self.should_fail_upload = False
         self.should_fail_download = False
 
@@ -729,7 +718,7 @@ class FakeQuoteRepository:
     async def get_next_quote_reference(self) -> str:
         self.seq_counter += 1
         current_year = datetime.now(UTC).year
-        return f"SQ-{current_year}-{self.seq_counter:04d}"
+        return f"MQ-{current_year}-{self.seq_counter:04d}"
 
     async def create(self, quote: QuoteInDB) -> QuoteInDB:
         from app.core.exceptions import DatabaseUnavailableException

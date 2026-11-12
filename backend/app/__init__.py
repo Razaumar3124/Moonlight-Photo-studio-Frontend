@@ -1,1 +1,1 @@
-"""SAF Studio Backend Application Package."""
+"""Moonlight Photo Studio Backend Application Package."""

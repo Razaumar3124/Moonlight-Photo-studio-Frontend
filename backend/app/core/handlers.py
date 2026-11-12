@@ -9,7 +9,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app.core.exceptions import AppException
 from app.schemas.common import ApiErrorDetail, ApiErrorPayload, ApiErrorResponse
 
-logger = logging.getLogger("saf_studio.errors")
+logger = logging.getLogger("moonlight_studio.errors")
 
 
 def create_error_response(

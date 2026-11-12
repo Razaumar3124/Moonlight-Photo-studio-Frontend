@@ -1,7 +1,40 @@
-import os
+"""Shared fixtures. The suite is hermetic: it never reads backend/.env (which may hold real
+credentials), pins every integration to a safe offline value, and fails any test that tries
+to reach a non-loopback host."""
 
-os.environ["ENVIRONMENT"] = "test"
-os.environ["EMAIL_PROVIDER"] = "mock"
+import atexit
+import os
+import shutil
+import socket
+import tempfile
+
+_TEST_STORAGE_ROOT = tempfile.mkdtemp(prefix="moonlight-test-storage-")
+atexit.register(shutil.rmtree, _TEST_STORAGE_ROOT, ignore_errors=True)
+
+# Set before any app module reads settings. Explicit values also override shell exports.
+os.environ.update(
+    {
+        "ENVIRONMENT": "test",
+        "MONGODB_URL": "mongodb://localhost:27017",
+        "DATABASE_NAME": "moonlight_studio_test",
+        "EMAIL_PROVIDER": "mock",
+        "RESEND_API_KEY": "",
+        "GROQ_ENABLED": "false",
+        "GROQ_API_KEY": "",
+        "GOOGLE_CLIENT_ID": "test-google-client-id.apps.googleusercontent.com",
+        "STORAGE_BACKEND": "local",
+        "LOCAL_STORAGE_PATH": _TEST_STORAGE_ROOT,
+        "R2_ACCOUNT_ID": "",
+        "R2_ACCESS_KEY_ID": "",
+        "R2_SECRET_ACCESS_KEY": "",
+    }
+)
+
+from app.core.config import Settings
+
+# pydantic-settings reads model_config at instantiation time, so this disables the .env
+# file for every Settings() created in tests (including get_settings()).
+Settings.model_config["env_file"] = None
 
 from collections.abc import AsyncGenerator
 from unittest.mock import AsyncMock, patch
@@ -14,12 +47,12 @@ from app.api.dependencies import (
     get_design_repository,
     get_photo_repository,
     get_quote_repository,
-    get_r2_storage,
     get_session_repository,
+    get_storage,
     get_template_repository,
     get_user_repository,
 )
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.db.mongodb import mongo_manager
 from app.main import create_application
 from app.services.rate_limiter import rate_limiter
@@ -37,20 +70,60 @@ from tests.fakes import (
 
 get_settings.cache_clear()
 
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1", "testserver"}
+_blocked_hosts: list[str] = []
+
+
+def _host_name(host: object) -> str:
+    return host.decode() if isinstance(host, bytes) else str(host)
+
+
+_real_getaddrinfo = socket.getaddrinfo
+_real_connect = socket.socket.connect
+
+
+def _guarded_getaddrinfo(host, *args, **kwargs):
+    if host is not None and _host_name(host) not in _LOOPBACK_HOSTS:
+        _blocked_hosts.append(_host_name(host))
+        raise socket.gaierror(f"Test suite blocked DNS lookup for {_host_name(host)}")
+    return _real_getaddrinfo(host, *args, **kwargs)
+
+
+def _guarded_connect(self, address):
+    host = address[0] if isinstance(address, tuple) else address
+    if _host_name(host) not in _LOOPBACK_HOSTS:
+        _blocked_hosts.append(_host_name(host))
+        raise ConnectionRefusedError(f"Test suite blocked connection to {_host_name(host)}")
+    return _real_connect(self, address)
+
+
+socket.getaddrinfo = _guarded_getaddrinfo
+socket.socket.connect = _guarded_connect
+
+
+@pytest.fixture(autouse=True)
+def no_external_network():
+    """Fail any test that attempted to reach a non-loopback host, even if the code under
+    test swallowed the resulting error (health probes do)."""
+    before = len(_blocked_hosts)
+    yield
+    attempted = _blocked_hosts[before:]
+    assert not attempted, f"Test attempted external network access: {sorted(set(attempted))}"
+
 
 @pytest.fixture(scope="session")
 def test_settings() -> Settings:
     """Test environment settings fixture."""
     return Settings(
-        APP_NAME="SAF Studio Test API",
+        APP_NAME="Moonlight Photo Studio Test API",
         ENVIRONMENT="test",
         DEBUG=True,
         MONGODB_URL="mongodb://localhost:27017",
-        DATABASE_NAME="saf_studio_test",
+        DATABASE_NAME="moonlight_studio_test",
         MONGODB_TIMEOUT_MS=1000,
         CORS_ORIGINS=["http://localhost:5173"],
         LOG_LEVEL="DEBUG",
-        SECRET_KEY="test-secret-key-32-chars-minimum-saf-studio-test-env",
+        SECRET_KEY="test-secret-key-32-chars-minimum-moonlight-studio-test-env",
         ACCESS_TOKEN_EXPIRE_MINUTES=30,
         REFRESH_TOKEN_EXPIRE_DAYS=14,
         PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=60,
@@ -150,7 +223,7 @@ def app(
     application.dependency_overrides[get_photo_repository] = lambda: fake_photo_repo
     application.dependency_overrides[get_design_repository] = lambda: fake_design_repo
     application.dependency_overrides[get_quote_repository] = lambda: fake_quote_repo
-    application.dependency_overrides[get_r2_storage] = lambda: fake_r2_storage
+    application.dependency_overrides[get_storage] = lambda: fake_r2_storage
     return application
 
 

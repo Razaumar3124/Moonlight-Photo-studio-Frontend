@@ -86,7 +86,7 @@ class QuotePrepareInput(BaseModel):
 class QuotePrepareResponse(BaseModel):
     """Response returned upon successful quote request preparation."""
 
-    quote_id: str = Field(description="Unique quote reference (e.g., SQ-2026-0012)")
+    quote_id: str = Field(description="Unique quote reference (e.g., MQ-2026-0012)")
     status: str = Field(default="draft", description="Quote status")
     whatsapp_url: str = Field(
         description="Official Click-to-Chat URL ready for client browser launch"

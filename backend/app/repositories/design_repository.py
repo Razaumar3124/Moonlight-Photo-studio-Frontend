@@ -10,7 +10,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 from app.models.design import DesignInDB
 from app.models.design_version import DesignVersionInDB
 
-logger = logging.getLogger("saf_studio.design_repo")
+logger = logging.getLogger("moonlight_studio.design_repo")
 
 
 class DesignRepository:

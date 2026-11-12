@@ -13,7 +13,7 @@ from typing import Any
 
 from app.integrations.groq_client import GroqLayoutRecommendation
 
-logger = logging.getLogger("saf_studio.ai_cache")
+logger = logging.getLogger("moonlight_studio.ai_cache")
 
 
 class AICacheRepository:

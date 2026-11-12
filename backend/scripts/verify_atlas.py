@@ -1,7 +1,11 @@
 """MongoDB Atlas Connectivity, Verification, and Seeding Diagnostic Tool.
 
-Usage:
-    python backend/scripts/verify_atlas.py [--no-seed] [--overwrite-seed] [--timeout-ms 5000]
+Usage (from backend/):
+    uv run python scripts/verify_atlas.py [--no-seed] [--overwrite-seed] [--timeout-ms 5000]
+
+Targets whatever MONGODB_URL / DATABASE_NAME in backend/.env point at. It creates indexes,
+writes and deletes one probe document, and seeds empty catalog collections, so check the
+printed target before confirming it is the Moonlight database.
 
 Verifies:
 1. Atlas M0 connection string parsing and TLS/certifi configuration.
@@ -17,7 +21,6 @@ import logging
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 # Ensure backend root is on sys.path
 backend_dir = Path(__file__).resolve().parent.parent
@@ -37,7 +40,7 @@ from app.repositories.template_repository import TemplateRepository
 from app.repositories.user_repository import UserRepository
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("saf_studio.atlas_verifier")
+logger = logging.getLogger("moonlight_studio.atlas_verifier")
 
 
 def p(msg: str = "") -> None:
@@ -45,7 +48,11 @@ def p(msg: str = "") -> None:
     print(msg, flush=True)
 
 
-async def run_verifier(auto_seed: bool = True, overwrite_seed: bool = False, timeout_ms: int | None = None) -> bool:
+async def run_verifier(
+    auto_seed: bool = True,
+    overwrite_seed: bool = False,
+    timeout_ms: int | None = None,
+) -> bool:
     settings = get_settings()
     if timeout_ms is not None:
         settings = Settings(**{**settings.model_dump(), "MONGODB_TIMEOUT_MS": timeout_ms})
@@ -54,9 +61,10 @@ async def run_verifier(auto_seed: bool = True, overwrite_seed: bool = False, tim
     is_atlas = settings.MONGODB_URL.startswith("mongodb+srv://")
 
     p("\n" + "=" * 70)
-    p(" SAF STUDIO — MONGODB ATLAS VERIFICATION & INITIALIZATION")
+    p(" MOONLIGHT PHOTO STUDIO — MONGODB ATLAS VERIFICATION & INITIALIZATION")
     p("=" * 70)
-    p(f" Target Mode    : {'MongoDB Atlas (Cloud M0)' if is_atlas else 'Local / Self-Hosted MongoDB'}")
+    target_mode = "MongoDB Atlas (Cloud M0)" if is_atlas else "Local / Self-Hosted MongoDB"
+    p(f" Target Mode    : {target_mode}")
     p(f" Database Name  : {settings.DATABASE_NAME}")
     p(f" Masked URI     : {masked_url}")
     p(f" Timeout (ms)   : {settings.MONGODB_TIMEOUT_MS}")
@@ -72,11 +80,11 @@ async def run_verifier(auto_seed: bool = True, overwrite_seed: bool = False, tim
         p(f"      ✗ Connection initialization failed: {exc}")
         p("\n[Troubleshooting Tips]:")
         if "<password>" in settings.MONGODB_URL:
-            p("  - MONGODB_URL contains placeholder '<password>'. Update it with your Atlas password.")
+            p("  - MONGODB_URL contains placeholder '<password>'. Use your Atlas password.")
         elif is_atlas:
-            p("  - Verify MongoDB Atlas Network Access: Ensure your IP is whitelisted (or 0.0.0.0/0).")
-            p("  - Verify Database User: Ensure username and password are correct and user has readWriteAnyDatabase.")
-            p("  - Special Characters: URL-encode any '@', ':', or '#' characters in your password.")
+            p("  - Verify Atlas Network Access: add your current IP to the access list.")
+            p("  - Verify the database user's name, password and readWrite role.")
+            p("  - URL-encode any '@', ':', or '#' characters in your password.")
         return False
 
     # Step 2: Measure Ping Latency and Fetch Server Info
@@ -121,7 +129,7 @@ async def run_verifier(auto_seed: bool = True, overwrite_seed: bool = False, tim
         await quote_repo.create_indexes()
 
         collections = await db.list_collection_names()
-        p(f"      ✓ Idempotent indexes verified successfully on {len(collections)} collections:")
+        p(f"      ✓ Idempotent indexes verified on {len(collections)} collections:")
         for col_name in sorted(collections):
             idx_cursor = await db[col_name].list_indexes()
             idx_list = [idx["name"] async for idx in idx_cursor]
@@ -160,13 +168,13 @@ async def run_verifier(auto_seed: bool = True, overwrite_seed: bool = False, tim
         tmpl_count = await db["layout_templates"].count_documents({})
         user_count = await db["users"].count_documents({})
 
-        p(f"      - Users count         : {user_count} (Fresh DB confirmation: historical data NOT migrated)")
+        p(f"      - Users count         : {user_count}")
         p(f"      - Frame Materials     : {mat_count}")
         p(f"      - Frame Moldings      : {mold_count}")
         p(f"      - Layout Templates    : {tmpl_count}")
 
         if (mat_count == 0 or mold_count == 0 or tmpl_count == 0 or overwrite_seed) and auto_seed:
-            p("      → Fresh database detected. Seeding default catalog materials, moldings, and templates...")
+            p("      → Seeding default catalog materials, moldings, and templates...")
             seed_results = await seed_catalogs_and_templates(db, overwrite=overwrite_seed)
             p(f"      ✓ Seeding complete: {seed_results}")
         else:
@@ -178,16 +186,22 @@ async def run_verifier(auto_seed: bool = True, overwrite_seed: bool = False, tim
 
     await mongo_manager.disconnect()
     p("\n" + "=" * 70)
-    p(" ALL ATLAS CHECKS PASSED — READY FOR PRODUCTION OPERATION")
+    p(" ALL DATABASE CHECKS PASSED")
     p("=" * 70 + "\n")
     return True
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="SAF Studio MongoDB Atlas Verifier")
-    parser.add_argument("--no-seed", action="store_true", help="Do not auto-seed empty catalog collections")
-    parser.add_argument("--overwrite-seed", action="store_true", help="Overwrite catalog items if they exist")
-    parser.add_argument("--timeout-ms", type=int, default=None, help="Override timeout in milliseconds")
+    parser = argparse.ArgumentParser(description="Moonlight Photo Studio MongoDB Atlas Verifier")
+    parser.add_argument(
+        "--no-seed", action="store_true", help="Do not auto-seed empty catalog collections"
+    )
+    parser.add_argument(
+        "--overwrite-seed", action="store_true", help="Overwrite catalog items if they exist"
+    )
+    parser.add_argument(
+        "--timeout-ms", type=int, default=None, help="Override timeout in milliseconds"
+    )
     args = parser.parse_args()
 
     success = await run_verifier(

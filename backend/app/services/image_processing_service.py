@@ -8,7 +8,7 @@ from PIL import Image, ImageOps
 from app.core.config import get_settings
 from app.core.exceptions import ValidationException
 
-logger = logging.getLogger("saf_studio.image_processing")
+logger = logging.getLogger("moonlight_studio.image_processing")
 
 # Guard against decompression bomb attacks (100 megapixels max)
 Image.MAX_IMAGE_PIXELS = 100_000_000

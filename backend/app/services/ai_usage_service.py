@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 
 from app.core.config import Settings
 
-logger = logging.getLogger("saf_studio.ai_usage")
+logger = logging.getLogger("moonlight_studio.ai_usage")
 
 
 class AIUsageService:

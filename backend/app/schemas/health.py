@@ -9,9 +9,9 @@ class HealthLiveResponse(BaseModel):
 
     status: str = Field(default="ok", description="Liveness status indicator", examples=["ok"])
     service: str = Field(
-        default="saf-studio-api",
+        default="moonlight-studio-api",
         description="Service identifier",
-        examples=["saf-studio-api"],
+        examples=["moonlight-studio-api"],
     )
     version: str = Field(default="0.1.0", description="API application version", examples=["0.1.0"])
     uptime_seconds: float = Field(
@@ -25,7 +25,7 @@ class HealthLiveResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "status": "ok",
-                "service": "saf-studio-api",
+                "service": "moonlight-studio-api",
                 "version": "0.1.0",
                 "uptime_seconds": 3600.0,
             }
@@ -48,11 +48,11 @@ class DatabaseHealthStatus(BaseModel):
 
 
 class StorageHealthStatus(BaseModel):
-    """Detailed health status for Cloudflare R2 object storage."""
+    """Detailed health status for object storage (local filesystem or Cloudflare R2)."""
 
-    connected: bool = Field(default=True, description="Whether Cloudflare R2 bucket is reachable")
+    connected: bool = Field(default=True, description="Whether object storage is reachable")
     status: str = Field(default="connected", description="R2 storage status description")
-    bucket: str = Field(..., description="Target Cloudflare R2 bucket name")
+    bucket: str = Field(..., description='R2 bucket name, or "local" for development storage')
     latency_ms: float | None = Field(default=None, description="Round-trip S3 ping latency in ms")
     issue: str | None = Field(default=None, description="Diagnostic issue message if unavailable")
 
@@ -84,9 +84,7 @@ class WhatsAppHealthStatus(BaseModel):
     is_placeholder: bool = Field(
         default=False, description="Whether the number is an unconfigured placeholder"
     )
-    is_valid_format: bool = Field(
-        default=True, description="Whether the number is valid E.164"
-    )
+    is_valid_format: bool = Field(default=True, description="Whether the number is valid E.164")
     public_app_url: str = Field(..., description="Base URL used for shareable quote reports")
 
     model_config = ConfigDict(extra="forbid")
@@ -100,12 +98,8 @@ class GroqHealthStatus(BaseModel):
     )
     enabled: bool = Field(default=False, description="Whether Groq AI inference is active")
     model: str = Field(..., description="Configured LLM model identifier")
-    latency_ms: float | None = Field(
-        default=None, description="Round-trip inference latency in ms"
-    )
-    issue: str | None = Field(
-        default=None, description="Diagnostic issue message if degraded"
-    )
+    latency_ms: float | None = Field(default=None, description="Round-trip inference latency in ms")
+    issue: str | None = Field(default=None, description="Diagnostic issue message if degraded")
 
     model_config = ConfigDict(extra="forbid")
 
@@ -152,9 +146,9 @@ class HealthReadyResponse(BaseModel):
         examples=["ready"],
     )
     service: str = Field(
-        default="saf-studio-api",
+        default="moonlight-studio-api",
         description="Service identifier",
-        examples=["saf-studio-api"],
+        examples=["moonlight-studio-api"],
     )
     database: DatabaseHealthStatus = Field(
         ...,
@@ -162,7 +156,7 @@ class HealthReadyResponse(BaseModel):
     )
     storage: StorageHealthStatus | None = Field(
         default=None,
-        description="Cloudflare R2 storage status",
+        description="Object storage status",
     )
     email: EmailHealthStatus | None = Field(
         default=None,
@@ -190,7 +184,7 @@ class HealthReadyResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "status": "ready",
-                "service": "saf-studio-api",
+                "service": "moonlight-studio-api",
                 "database": {
                     "connected": True,
                     "status": "connected",
@@ -211,9 +205,9 @@ class HealthSystemResponse(BaseModel):
         examples=["healthy"],
     )
     service: str = Field(
-        default="saf-studio-api",
+        default="moonlight-studio-api",
         description="Service identifier",
-        examples=["saf-studio-api"],
+        examples=["moonlight-studio-api"],
     )
     version: str = Field(
         default="0.1.0",

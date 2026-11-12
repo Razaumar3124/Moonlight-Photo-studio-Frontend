@@ -1,25 +1,55 @@
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import BACKEND_DIR, INSECURE_DEV_SECRET_KEY, Settings
 from app.core.logging import sanitize_sensitive_data
 
 
-def test_default_settings():
-    """Verify default configuration loads with expected defaults."""
+@pytest.fixture
+def clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove the suite's pinned env vars so code defaults are what gets tested."""
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name, raising=False)
+
+
+def _production(**overrides) -> Settings:
+    """A complete, valid production configuration (fake values) with optional overrides."""
+    values = {
+        "ENVIRONMENT": "production",
+        "DEBUG": False,
+        "CORS_ORIGINS": ["https://moonlight.example.com"],
+        "SECRET_KEY": "s" * 48,
+        "OTP_SECRET_KEY": "o" * 48,
+        "STORAGE_BACKEND": "r2",
+        "R2_ACCOUNT_ID": "account",
+        "R2_ACCESS_KEY_ID": "access",
+        "R2_SECRET_ACCESS_KEY": "secret",
+        "R2_BUCKET_NAME": "moonlight-studio-photos",
+        "EMAIL_PROVIDER": "resend",
+        "RESEND_API_KEY": "re_fake",
+        "RESEND_TEST_MODE": False,
+        "BUSINESS_WHATSAPP_NUMBER": "911234567890",
+        "PUBLIC_APP_URL": "https://moonlight.example.com",
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+def test_default_settings(clean_env):
+    """Verify default configuration loads with expected Moonlight defaults."""
     settings = Settings()
-    assert settings.APP_NAME == "SAF Studio API"
+    assert settings.APP_NAME == "Moonlight Photo Studio API"
     assert settings.VERSION == "0.1.0"
     assert settings.API_V1_STR == "/api/v1"
-    assert settings.DATABASE_NAME == "saf_studio"
+    assert settings.DATABASE_NAME == "moonlight_studio"
     assert settings.is_development is True
     assert settings.is_production is False
 
 
 def test_comma_separated_cors_origins():
     """Verify comma-separated string is parsed into list of origins."""
-    settings = Settings(CORS_ORIGINS="http://localhost:3000, https://saf.example.com")
-    assert settings.CORS_ORIGINS == ["http://localhost:3000", "https://saf.example.com"]
+    settings = Settings(CORS_ORIGINS="http://localhost:3000, https://moonlight.example.com")
+    assert settings.CORS_ORIGINS == ["http://localhost:3000", "https://moonlight.example.com"]
 
 
 def test_production_wildcard_cors_prohibited():
@@ -44,11 +74,13 @@ def test_production_empty_cors_prohibited():
 
 def test_sensitive_uri_masking():
     """Verify sensitive database credentials are masked in logs and strings."""
-    secret_uri = "mongodb://admin_user:super_secret_pass@cluster0.mongodb.net:27017/saf_studio"
+    secret_uri = (
+        "mongodb://admin_user:super_secret_pass@cluster0.mongodb.net:27017/moonlight_studio"
+    )
     sanitized = sanitize_sensitive_data(secret_uri)
     assert "super_secret_pass" not in sanitized
     assert "admin_user" not in sanitized
-    assert "mongodb://***:***@cluster0.mongodb.net:27017/saf_studio" == sanitized
+    assert "mongodb://***:***@cluster0.mongodb.net:27017/moonlight_studio" == sanitized
 
 
 def test_invalid_environment_literal():
@@ -59,7 +91,7 @@ def test_invalid_environment_literal():
 
 def test_mongodb_atlas_srv_url_valid():
     """Verify MongoDB Atlas SRV URI format is accepted."""
-    srv_uri = "mongodb+srv://saf_admin:SecurePass123@cluster0.abcde.mongodb.net/saf_studio?retryWrites=true&w=majority"
+    srv_uri = "mongodb+srv://moonlight_admin:SecurePass123@cluster0.abcde.mongodb.net/moonlight_studio?retryWrites=true&w=majority"
     settings = Settings(MONGODB_URL=srv_uri)
     assert settings.MONGODB_URL == srv_uri
 
@@ -67,19 +99,86 @@ def test_mongodb_atlas_srv_url_valid():
 def test_mongodb_url_invalid_scheme():
     """Verify invalid URL scheme fails validation."""
     with pytest.raises(ValidationError) as exc_info:
-        Settings(MONGODB_URL="postgres://user:pass@localhost:5432/saf_studio")
+        Settings(MONGODB_URL="postgres://user:pass@localhost:5432/moonlight_studio")
     assert "MONGODB_URL must begin with either 'mongodb://'" in str(exc_info.value)
 
 
 def test_mongodb_url_placeholder_rejection():
     """Verify placeholder <password> in connection string is rejected with clear error."""
     with pytest.raises(ValidationError) as exc_info:
-        Settings(MONGODB_URL="mongodb+srv://admin:<password>@cluster0.abcde.mongodb.net/saf_studio")
+        Settings(
+            MONGODB_URL="mongodb+srv://admin:<password>@cluster0.abcde.mongodb.net/moonlight_studio"
+        )
     assert "contains unresolved placeholder '<password>'" in str(exc_info.value)
 
 
-def test_mongodb_timeout_default_is_10000():
+def test_mongodb_timeout_default_is_10000(clean_env):
     """Verify cloud default connection timeout is 10,000ms."""
     settings = Settings()
     assert settings.MONGODB_TIMEOUT_MS == 10000
 
+
+def test_defaults_are_safe_for_local_development(clean_env):
+    """Defaults never point at a shared service or a real person."""
+    settings = Settings()
+    assert settings.STORAGE_BACKEND == "local"
+    assert settings.EMAIL_PROVIDER == "mock"
+    assert settings.GROQ_ENABLED is False
+    assert settings.RESEND_TEST_RECIPIENT == ""
+    assert settings.R2_BUCKET_NAME == "moonlight-studio-photos"
+    assert settings.uses_insecure_dev_secret is True
+
+
+def test_env_file_is_anchored_to_backend_dir():
+    """The .env path doesn't depend on the working directory the server starts from."""
+    assert Settings.model_config["env_file"] is None  # disabled by conftest for isolation
+    from app.core import config
+
+    assert config.BACKEND_DIR == BACKEND_DIR
+    assert (BACKEND_DIR / "app" / "core" / "config.py").is_file()
+
+
+def test_local_storage_root_resolves_relative_to_backend(clean_env):
+    settings = Settings(LOCAL_STORAGE_PATH="storage/local")
+    assert settings.local_storage_root == (BACKEND_DIR / "storage" / "local").resolve()
+
+
+def test_valid_production_configuration_is_accepted():
+    settings = _production()
+    assert settings.is_production is True
+
+
+def test_production_rejects_development_defaults(clean_env):
+    """Production with defaults fails, naming every problem but no secret values."""
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(ENVIRONMENT="production", CORS_ORIGINS=["https://moonlight.example.com"])
+    message = str(exc_info.value)
+    for expected in (
+        "SECRET_KEY",
+        "OTP_SECRET_KEY",
+        "STORAGE_BACKEND must be 'r2'",
+        "EMAIL_PROVIDER must be 'resend'",
+        "BUSINESS_WHATSAPP_NUMBER",
+        "PUBLIC_APP_URL must use https://",
+    ):
+        assert expected in message
+    assert INSECURE_DEV_SECRET_KEY not in message
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"SECRET_KEY": INSECURE_DEV_SECRET_KEY}, "SECRET_KEY must be a unique random value"),
+        ({"SECRET_KEY": "short"}, "SECRET_KEY must be a unique random value"),
+        ({"OTP_SECRET_KEY": "s" * 48}, "OTP_SECRET_KEY must be at least 32 characters"),
+        ({"DEBUG": True}, "DEBUG must be false"),
+        ({"R2_ACCESS_KEY_ID": ""}, "missing R2_ACCESS_KEY_ID"),
+        ({"R2_ACCOUNT_ID": "", "R2_ENDPOINT_URL": ""}, "R2_ACCOUNT_ID (or R2_ENDPOINT_URL)"),
+        ({"RESEND_TEST_MODE": True}, "RESEND_TEST_MODE must be false"),
+        ({"GROQ_ENABLED": True, "GROQ_API_KEY": ""}, "GROQ_API_KEY is required"),
+    ],
+)
+def test_production_requirement_violations(overrides, expected):
+    with pytest.raises(ValidationError) as exc_info:
+        _production(**overrides)
+    assert expected in str(exc_info.value)

@@ -80,7 +80,7 @@ async def test_quote_prepare_success(
 
     assert "quote_id" in data
     quote_ref = data["quote_id"]
-    assert quote_ref.startswith("SQ-")
+    assert quote_ref.startswith("MQ-")
     assert data["status"] == "draft"
     assert "whatsapp_url" in data
     assert "report_url" in data
@@ -93,7 +93,7 @@ async def test_quote_prepare_success(
     encoded_text = wa_url.split("?text=")[1]
     decoded_text = urllib.parse.unquote(encoded_text)
 
-    assert "Hello SAF Studio! 👋" in decoded_text
+    assert "Hello Moonlight Photo Studio! 👋" in decoded_text
     assert f"Reference: {quote_ref}" in decoded_text
     assert "120 × 96 inches" in decoded_text
     assert "Gallery Grid" in decoded_text

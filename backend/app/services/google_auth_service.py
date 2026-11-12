@@ -8,6 +8,7 @@ from google.oauth2 import id_token as google_id_token
 from app.core.config import get_settings
 from app.core.exceptions import (
     AccountDisabledException,
+    GoogleAuthNotConfiguredException,
     InvalidGoogleTokenException,
 )
 from app.models.user import UserInDB
@@ -16,7 +17,7 @@ from app.schemas.auth import AuthResponse
 from app.schemas.user import UserOut
 from app.services.token_service import TokenService
 
-logger = logging.getLogger("saf_studio.google_auth")
+logger = logging.getLogger("moonlight_studio.google_auth")
 
 
 class GoogleAuthService:
@@ -35,10 +36,15 @@ class GoogleAuthService:
         """Verify Google ID token and sign in / register user."""
         settings = get_settings()
 
+        # The audience check is what binds a token to Moonlight. Never verify without it.
+        audience = settings.GOOGLE_CLIENT_ID.strip()
+        if not audience:
+            logger.warning("Google sign-in attempted but GOOGLE_CLIENT_ID is not configured")
+            raise GoogleAuthNotConfiguredException()
+
         try:
             # Use Google's official id_token verification
             request = google_requests.Request()
-            audience = settings.GOOGLE_CLIENT_ID or None
 
             id_info = google_id_token.verify_oauth2_token(
                 id_token_str,

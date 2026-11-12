@@ -9,6 +9,7 @@ from app.api.v1.endpoints import (
     health,
     photos,
     quotes,
+    storage,
     templates,
 )
 
@@ -36,3 +37,6 @@ api_v1_router.include_router(designs.router)
 
 # Register Phase 7 endpoints (WhatsApp Quotes & Digital Design Reports)
 api_v1_router.include_router(quotes.router)
+
+# Signed downloads for the development storage backend (404 unless STORAGE_BACKEND=local)
+api_v1_router.include_router(storage.router)

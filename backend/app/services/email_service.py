@@ -1,4 +1,5 @@
 import logging
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -6,7 +7,7 @@ import httpx
 from app.core.config import get_settings
 from app.core.exceptions import AppException
 
-logger = logging.getLogger("saf_studio.email")
+logger = logging.getLogger("moonlight_studio.email")
 
 
 class EmailDeliveryException(AppException):
@@ -26,13 +27,13 @@ class EmailDeliveryException(AppException):
 
 
 def render_otp_email_html(otp_code: str, expiry_minutes: int = 10) -> str:
-    """Render branded luxury HTML email template for SAF Studio password recovery."""
+    """Render the branded HTML email for Moonlight Photo Studio password recovery."""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Your SAF Studio Verification Code</title>
+  <title>Your Moonlight Photo Studio Verification Code</title>
   <style>
     body {{
       margin: 0; padding: 0; background-color: #0F0F11;
@@ -85,13 +86,13 @@ def render_otp_email_html(otp_code: str, expiry_minutes: int = 10) -> str:
 <body>
   <div class="wrapper">
     <div class="header">
-      <div class="brand-title">Sagar Arts &amp; Frames</div>
-      <div class="brand-subtitle">Fine Art &amp; Memory Wall Studio</div>
+      <div class="brand-title">Moonlight Photo Studio</div>
+      <div class="brand-subtitle">Memory Wall Studio</div>
     </div>
     <div class="content">
       <h1 class="title">Password Reset Verification</h1>
       <p class="description">
-        We received a request to reset the password for your SAF Studio account.
+        We received a request to reset the password for your Moonlight Photo Studio account.
         Enter this 6-digit verification code to proceed:
       </p>
       <div class="otp-container">
@@ -109,7 +110,7 @@ def render_otp_email_html(otp_code: str, expiry_minutes: int = 10) -> str:
       </div>
     </div>
     <div class="footer">
-      &copy; 2026 Sagar Arts &amp; Frames Studio. All rights reserved.<br>
+      &copy; {datetime.now(UTC).year} Moonlight Photo Studio. All rights reserved.<br>
       Automated security transmission. Replies are not monitored.
     </div>
   </div>
@@ -119,7 +120,7 @@ def render_otp_email_html(otp_code: str, expiry_minutes: int = 10) -> str:
 
 def render_otp_email_text(otp_code: str, expiry_minutes: int = 10) -> str:
     """Render plain-text fallback email for clients with HTML disabled."""
-    return f"""SAF STUDIO — PASSWORD RESET CODE
+    return f"""MOONLIGHT PHOTO STUDIO — PASSWORD RESET CODE
 ------------------------------------------------------
 Your 6-digit verification code is: {otp_code}
 
@@ -128,7 +129,7 @@ This code expires in {expiry_minutes} minutes.
 If you did not request a password reset, please ignore this email.
 Your account remains secure.
 
-— Sagar Arts & Frames Studio
+— Moonlight Photo Studio
 """
 
 
@@ -148,7 +149,7 @@ class EmailService:
         settings = get_settings()
         expire_mins = expiry_minutes or settings.EMAIL_OTP_EXPIRE_MINUTES
 
-        subject = f"{otp_code} is your SAF Studio verification code"
+        subject = f"{otp_code} is your Moonlight Photo Studio verification code"
         html_body = render_otp_email_html(otp_code, expire_mins)
         text_body = render_otp_email_text(otp_code, expire_mins)
 
@@ -186,17 +187,19 @@ class EmailService:
                 allowed_recipient = (settings.RESEND_TEST_RECIPIENT or "").strip().lower()
                 norm_to_email = to_email.strip().lower()
                 if allowed_recipient and norm_to_email != allowed_recipient:
+                    # The allowed address is a developer's inbox: log it, never return it.
                     logger.warning(
-                        "Resend testing mode restriction blocked dispatch to '%s'. Only '%s' is permitted.",
+                        "Resend testing mode blocked dispatch to '%s'; only '%s' is permitted.",
                         to_email,
                         allowed_recipient,
                     )
                     raise EmailDeliveryException(
                         message=(
-                            f"In development testing mode, emails can only be sent to {allowed_recipient}. "
-                            "Please verify a custom domain at resend.com/domains to send to other recipients."
+                            "Email delivery is in testing mode and can only reach the configured "
+                            "test recipient. Verify a sending domain at resend.com/domains to "
+                            "email other recipients."
                         ),
-                        issue=f"Recipient not allowed in Resend test mode (allowed: {allowed_recipient})",
+                        issue="Recipient not allowed in Resend test mode",
                     )
 
             payload = {
@@ -221,7 +224,7 @@ class EmailService:
                     )
 
                 if resp.status_code in (200, 201):
-                    logger.info("Verification OTP email dispatched successfully via Resend to %s", to_email)
+                    logger.info("Verification OTP email dispatched via Resend to %s", to_email)
                     return True
 
                 # Parse Resend response safely without leaking credentials or raw payloads
@@ -232,16 +235,18 @@ class EmailService:
                     resend_msg = resend_json.get("message", "")
                     if resp.status_code == 403 and "testing emails" in resend_msg.lower():
                         error_message = (
-                            f"Resend is in testing mode and can only deliver to the verified account owner "
-                            f"({settings.RESEND_TEST_RECIPIENT}). "
-                            "Please verify a custom domain at resend.com/domains to send to other recipients."
+                            "Resend is in testing mode and can only deliver to the verified "
+                            "account owner. Verify a sending domain at resend.com/domains to "
+                            "email other recipients."
                         )
                         issue_summary = "Resend 403 testing recipient restriction"
                     elif resp.status_code == 422:
                         error_message = "Email delivery service rejected recipient address format."
                         issue_summary = "Resend 422 validation error"
                     elif resp.status_code == 429:
-                        error_message = "Email delivery rate limit reached. Please wait a moment and try again."
+                        error_message = (
+                            "Email delivery rate limit reached. Please wait a moment and try again."
+                        )
                         issue_summary = "Resend 429 rate limit exceeded"
                     elif resp.status_code == 401:
                         error_message = "Email delivery service authentication error."

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import httpx
 from fastapi import APIRouter, Response, status
 
-from app.api.dependencies import GroqClientDep, R2StorageDep, SettingsDep
+from app.api.dependencies import GroqClientDep, SettingsDep, StorageDep
 from app.core.config import Settings
 from app.db.mongodb import mongo_manager
 from app.integrations.groq_client import GroqClient
@@ -24,7 +24,7 @@ from app.schemas.health import (
 )
 from app.services.email_service import email_service
 from app.services.whatsapp_service import WhatsAppService
-from app.storage.r2_storage import R2Storage
+from app.storage import ObjectStorage
 
 router = APIRouter(prefix="/health", tags=["Health & Operations"])
 
@@ -32,8 +32,8 @@ router = APIRouter(prefix="/health", tags=["Health & Operations"])
 _APP_START_TIME = time.time()
 
 
-async def _check_r2_storage(storage: R2Storage, settings: Settings) -> StorageHealthStatus:
-    """Diagnostic check for Cloudflare R2 object storage."""
+async def _check_r2_storage(storage: ObjectStorage, settings: Settings) -> StorageHealthStatus:
+    """Diagnostic check for the configured object storage (local or Cloudflare R2)."""
     try:
         latency = await storage.ping()
         return StorageHealthStatus(
@@ -46,7 +46,7 @@ async def _check_r2_storage(storage: R2Storage, settings: Settings) -> StorageHe
         return StorageHealthStatus(
             connected=False,
             status="unreachable",
-            bucket=settings.R2_BUCKET_NAME,
+            bucket=storage.bucket_name,
             issue=str(exc),
         )
 
@@ -133,14 +133,14 @@ async def _check_google_oauth(settings: Settings) -> GoogleAuthHealthStatus:
     },
     summary="Comprehensive system health check",
     description=(
-        "Unified diagnostic probe checking MongoDB, Cloudflare R2, Email, "
+        "Unified diagnostic probe checking MongoDB, object storage, Email, "
         "WhatsApp, Groq AI, and Google OAuth concurrently."
     ),
 )
 async def health_system(
     response: Response,
     settings: SettingsDep,
-    storage: R2StorageDep,
+    storage: StorageDep,
     groq_client: GroqClientDep,
 ) -> HealthSystemResponse:
     """Unified system health check."""
@@ -173,7 +173,7 @@ async def health_system(
         else StorageHealthStatus(
             connected=False,
             status="error",
-            bucket=settings.R2_BUCKET_NAME,
+            bucket=storage.bucket_name,
             issue=str(r2_res),
         )
     )
@@ -235,7 +235,7 @@ async def health_system(
     uptime = round(time.time() - _APP_START_TIME, 2)
     return HealthSystemResponse(
         status=overall_status,
-        service="saf-studio-api",
+        service="moonlight-studio-api",
         version=settings.VERSION,
         uptime_seconds=uptime,
         components=components,
@@ -257,7 +257,7 @@ async def health_live(
     uptime = round(time.time() - _APP_START_TIME, 2)
     return HealthLiveResponse(
         status="ok",
-        service="saf-studio-api",
+        service="moonlight-studio-api",
         version=settings.VERSION,
         uptime_seconds=uptime,
     )
@@ -278,7 +278,7 @@ async def health_live(
 )
 async def health_ready(
     settings: SettingsDep,
-    storage: R2StorageDep,
+    storage: StorageDep,
     groq_client: GroqClientDep,
 ) -> HealthReadyResponse:
     """Readiness probe. Pings MongoDB and auxiliary services."""
@@ -302,7 +302,7 @@ async def health_ready(
 
     return HealthReadyResponse(
         status="ready",
-        service="saf-studio-api",
+        service="moonlight-studio-api",
         database=DatabaseHealthStatus(
             connected=True,
             status="connected",

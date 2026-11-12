@@ -10,7 +10,7 @@ async def test_health_live_endpoint(client: AsyncClient):
 
     data = response.json()
     assert data["status"] == "ok"
-    assert data["service"] == "saf-studio-api"
+    assert data["service"] == "moonlight-studio-api"
     assert "version" in data
     assert isinstance(data["uptime_seconds"], (int, float))
     assert data["uptime_seconds"] >= 0
@@ -32,7 +32,7 @@ async def test_health_ready_success(client: AsyncClient, mock_mongo_connected):
 
     data = response.json()
     assert data["status"] == "ready"
-    assert data["service"] == "saf-studio-api"
+    assert data["service"] == "moonlight-studio-api"
     assert data["database"]["connected"] is True
     assert data["database"]["status"] == "connected"
     assert data["database"]["latency_ms"] == 1.45
@@ -63,7 +63,7 @@ async def test_root_endpoint(client: AsyncClient):
     response = await client.get("/")
     assert response.status_code == 200
     data = response.json()
-    assert data["service"] == "SAF Studio Test API"
+    assert data["service"] == "Moonlight Photo Studio Test API"
     assert data["health"] == "/api/v1/health/live"
 
 
@@ -75,7 +75,7 @@ async def test_health_system_unified_endpoint(client: AsyncClient, mock_mongo_co
 
     data = response.json()
     assert data["status"] in ("healthy", "degraded", "unhealthy")
-    assert data["service"] == "saf-studio-api"
+    assert data["service"] == "moonlight-studio-api"
     assert "version" in data
     assert isinstance(data["uptime_seconds"], (int, float))
     assert "timestamp" in data
@@ -127,4 +127,3 @@ async def test_health_ready_enriched_components(client: AsyncClient, mock_mongo_
     assert "whatsapp" in data
     assert "groq_ai" in data
     assert "google_oauth" in data
-

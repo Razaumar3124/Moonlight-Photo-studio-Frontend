@@ -190,3 +190,30 @@ async def test_google_auth_conflicting_google_id_returns_401(
         response = await client.post("/api/v1/auth/google", json=payload)
         assert response.status_code == 401
         assert response.json()["error"]["code"] == "INVALID_GOOGLE_TOKEN"
+
+
+@pytest.mark.asyncio
+async def test_google_auth_fails_closed_without_client_id(client: AsyncClient):
+    """Without GOOGLE_CLIENT_ID the token audience can't be checked: refuse, never verify."""
+    from app.core.config import get_settings
+
+    settings = get_settings().model_copy(update={"GOOGLE_CLIENT_ID": "  "})
+    with (
+        patch("app.services.google_auth_service.get_settings", return_value=settings),
+        patch("google.oauth2.id_token.verify_oauth2_token") as verify,
+    ):
+        response = await client.post("/api/v1/auth/google", json={"id_token": "any-google-token"})
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "GOOGLE_AUTH_NOT_CONFIGURED"
+    verify.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_google_auth_checks_configured_audience(client: AsyncClient):
+    mock_id_info = {"sub": "g-aud", "email": "aud@example.com", "email_verified": True}
+    with patch("google.oauth2.id_token.verify_oauth2_token", return_value=mock_id_info) as verify:
+        response = await client.post("/api/v1/auth/google", json={"id_token": "valid-token-123"})
+
+    assert response.status_code == 200
+    assert verify.call_args.kwargs["audience"] == "test-google-client-id.apps.googleusercontent.com"

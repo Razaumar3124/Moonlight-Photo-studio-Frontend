@@ -30,9 +30,9 @@ from app.schemas.quote import (
 from app.services.image_processing_service import ImageProcessingService
 from app.services.quote_report_service import QuoteReportService
 from app.services.whatsapp_service import WhatsAppService
-from app.storage.r2_storage import R2Storage
+from app.storage import ObjectStorage
 
-logger = logging.getLogger("saf_studio.quote_service")
+logger = logging.getLogger("moonlight_studio.quote_service")
 
 # Approximate profile widths in inches for standard wood mouldings
 FRAME_PROFILE_WIDTHS: dict[str, float] = {
@@ -62,7 +62,7 @@ class QuoteService:
         self,
         quote_repo: QuoteRepository,
         photo_repo: PhotoRepository,
-        r2_storage: R2Storage,
+        r2_storage: ObjectStorage,
         whatsapp_service: WhatsAppService | None = None,
         report_service: QuoteReportService | None = None,
     ) -> None:
@@ -269,7 +269,7 @@ class QuoteService:
         # 4. Validate preview image and sniff MIME type
         mime_type, img_w, img_h = await self.validate_preview_image(preview_bytes)
 
-        # 5. Generate unique quote reference (SQ-YYYY-XXXX) and tokens
+        # 5. Generate unique quote reference (MQ-YYYY-XXXX) and tokens
         quote_reference = await self.quote_repo.get_next_quote_reference()
         raw_share_token = generate_secure_token(32)
         share_token_hash = hash_token(raw_share_token)
@@ -429,9 +429,7 @@ class QuoteService:
         # Check expiration
         now = datetime.now(UTC)
         quote_expires_at = (
-            quote.expires_at
-            if quote.expires_at.tzinfo
-            else quote.expires_at.replace(tzinfo=UTC)
+            quote.expires_at if quote.expires_at.tzinfo else quote.expires_at.replace(tzinfo=UTC)
         )
         if now > quote_expires_at:
             raise ResourceNotFoundException(

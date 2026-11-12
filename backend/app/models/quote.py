@@ -77,7 +77,7 @@ class QuoteInDB(BaseModel):
 
     id: PyObjectId = Field(default_factory=lambda: str(ObjectId()), alias="_id")
     quote_reference: str = Field(
-        description="Unique sequential quote identifier (e.g., SQ-2026-0012)"
+        description="Unique sequential quote identifier (e.g., MQ-2026-0012)"
     )
     user_id: str = Field(description="Owner user ObjectId hex string")
     customer: QuoteContactSnapshot = Field(description="Customer contact details snapshot")

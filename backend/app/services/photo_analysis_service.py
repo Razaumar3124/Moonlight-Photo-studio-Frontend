@@ -13,9 +13,9 @@ from PIL import Image, ImageStat
 
 from app.models.photo import PhotoInDB, VisualAnalysis
 from app.repositories.photo_repository import PhotoRepository
-from app.storage.r2_storage import R2Storage
+from app.storage import ObjectStorage
 
-logger = logging.getLogger("saf_studio.photo_analysis")
+logger = logging.getLogger("moonlight_studio.photo_analysis")
 
 
 class PhotoAnalysisService:
@@ -24,7 +24,7 @@ class PhotoAnalysisService:
     def __init__(
         self,
         photo_repo: PhotoRepository,
-        r2_storage: R2Storage,
+        r2_storage: ObjectStorage,
     ) -> None:
         self.photo_repo = photo_repo
         self.r2_storage = r2_storage

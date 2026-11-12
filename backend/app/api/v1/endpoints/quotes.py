@@ -32,7 +32,7 @@ from app.schemas.quote import (
 )
 from app.services.rate_limiter import rate_limiter
 
-logger = logging.getLogger("saf_studio.quotes")
+logger = logging.getLogger("moonlight_studio.quotes")
 
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
 
@@ -173,13 +173,14 @@ async def get_shared_quote_preview(
     """Stream high-res preview image for an authorized share token holder without authentication."""
     quote, _ = await quote_service.get_quote_by_share_token(token)
     data, content_type = await quote_service.r2_storage.get_object(quote.preview_image_key)
+    filename = f"moonlight-quote-{quote.quote_reference}.png"
 
     return Response(
         content=data,
         media_type=content_type or quote.preview_image_content_type,
         headers={
             "Cache-Control": "public, max-age=86400",
-            "Content-Disposition": f'inline; filename="saf-quote-{quote.quote_reference}.png"',
+            "Content-Disposition": f'inline; filename="{filename}"',
         },
     )
 

@@ -42,7 +42,7 @@ from app.services.email_service import email_service as global_email_service
 from app.services.rate_limiter import rate_limiter
 from app.services.token_service import TokenService
 
-logger = logging.getLogger("saf_studio.auth")
+logger = logging.getLogger("moonlight_studio.auth")
 
 
 class AuthService:
@@ -268,14 +268,6 @@ class AuthService:
             message="If an account is associated with this email, a verification code was sent.",
             cooldown_seconds=settings.EMAIL_OTP_COOLDOWN_SECONDS,
         )
-
-    async def initiate_password_recovery(
-        self,
-        req: ForgotPasswordRequest,
-        ip_address: str | None = None,
-    ) -> ForgotPasswordResponse:
-        """Alias for request_password_reset_otp to maintain backward compatibility."""
-        return await self.request_password_reset_otp(req, ip_address=ip_address)
 
     async def verify_password_reset_otp(
         self,

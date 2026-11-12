@@ -1,7 +1,7 @@
 [project]
 name = "moonlight-studio-backend"
 version = "0.1.0"
-description = "FastAPI asynchronous backend for SAF Studio"
+description = "FastAPI asynchronous backend for Moonlight Photo Studio"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -56,6 +56,12 @@ select = [
     "UP",  # pyupgrade
 ]
 ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Environment must be pinned before app modules are imported.
+"tests/conftest.py" = ["E402"]
+# Standalone scripts put backend/ on sys.path before importing the app.
+"scripts/*.py" = ["E402"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

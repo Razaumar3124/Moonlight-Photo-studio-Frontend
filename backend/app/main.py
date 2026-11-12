@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.handlers import register_exception_handlers
-from app.core.logging import setup_logging
+from app.core.logging import sanitize_sensitive_data, setup_logging
 from app.db.mongodb import mongo_manager
 from app.repositories.catalog_repository import CatalogRepository
 from app.repositories.design_repository import DesignRepository
@@ -19,7 +19,7 @@ from app.repositories.session_repository import SessionRepository
 from app.repositories.template_repository import TemplateRepository
 from app.repositories.user_repository import UserRepository
 
-logger = logging.getLogger("saf_studio.app")
+logger = logging.getLogger("moonlight_studio.app")
 
 
 @asynccontextmanager
@@ -39,6 +39,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         settings.VERSION,
         settings.ENVIRONMENT,
     )
+    # Make the data targets obvious at startup (credentials masked) so a wrong .env is caught.
+    logger.info(
+        "Database: %s / %s | Storage: %s",
+        sanitize_sensitive_data(settings.MONGODB_URL),
+        settings.DATABASE_NAME,
+        "local filesystem" if settings.STORAGE_BACKEND == "local" else "Cloudflare R2",
+    )
+    if settings.uses_insecure_dev_secret and settings.ENVIRONMENT != "test":
+        logger.warning(
+            "SECRET_KEY is the built-in development value. Generate one for backend/.env: "
+            'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+        )
 
     # 2. Initialize asynchronous MongoDB connection pool and indexes
     if settings.ENVIRONMENT != "test":
@@ -89,7 +101,7 @@ def create_application() -> FastAPI:
     application = FastAPI(
         title=settings.APP_NAME,
         version=settings.VERSION,
-        description="FastAPI Backend for SAF Studio Gallery Wall Platform",
+        description="FastAPI Backend for Moonlight Photo Studio Gallery Wall Platform",
         docs_url=docs_url,
         redoc_url=redoc_url,
         openapi_url=openapi_url,

@@ -61,7 +61,7 @@ async def test_get_or_analyze_photo_caching():
         storage_key="orig.jpg",
         thumbnail_key="thumb.jpg",
         preview_key="preview-key.jpg",
-        bucket="saf-bucket",
+        bucket="moonlight-bucket",
         mime_type="image/jpeg",
         file_size_bytes=len(img_bytes),
         width_px=400,

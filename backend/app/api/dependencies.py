@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import Depends
@@ -39,7 +39,7 @@ from app.services.redesign_service import RedesignService
 from app.services.template_service import TemplateService
 from app.services.token_service import TokenService
 from app.services.whatsapp_service import WhatsAppService
-from app.storage.r2_storage import R2Storage
+from app.storage import ObjectStorage, create_storage
 
 # Bearer token extractor
 _bearer_security = HTTPBearer(auto_error=False)
@@ -126,13 +126,6 @@ async def get_current_user(
     return user
 
 
-async def get_current_active_user(
-    current_user: Annotated[UserInDB, Depends(get_current_user)],
-) -> UserInDB:
-    """Assert authenticated user is active."""
-    return current_user
-
-
 async def get_catalog_repository(
     db: Annotated[AsyncDatabase, Depends(get_db)],
 ) -> CatalogRepository:
@@ -192,15 +185,17 @@ async def get_image_processing_service() -> ImageProcessingService:
     return ImageProcessingService()
 
 
-async def get_r2_storage() -> R2Storage:
-    """Dependency for Cloudflare R2 storage client."""
-    return R2Storage()
+async def get_storage(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ObjectStorage:
+    """Dependency for the configured object storage (local filesystem or Cloudflare R2)."""
+    return create_storage(settings)
 
 
 async def get_photo_service(
     photo_repo: Annotated[PhotoRepository, Depends(get_photo_repository)],
     image_service: Annotated[ImageProcessingService, Depends(get_image_processing_service)],
-    r2_storage: Annotated[R2Storage, Depends(get_r2_storage)],
+    r2_storage: Annotated[ObjectStorage, Depends(get_storage)],
 ) -> PhotoService:
     """Dependency for PhotoService."""
     return PhotoService(
@@ -212,7 +207,7 @@ async def get_photo_service(
 
 async def get_photo_analysis_service(
     photo_repo: Annotated[PhotoRepository, Depends(get_photo_repository)],
-    r2_storage: Annotated[R2Storage, Depends(get_r2_storage)],
+    r2_storage: Annotated[ObjectStorage, Depends(get_storage)],
 ) -> PhotoAnalysisService:
     """Dependency for PhotoAnalysisService."""
     return PhotoAnalysisService(photo_repo=photo_repo, r2_storage=r2_storage)
@@ -310,7 +305,7 @@ async def get_quote_report_service() -> QuoteReportService:
 async def get_quote_service(
     quote_repo: Annotated[QuoteRepository, Depends(get_quote_repository)],
     photo_repo: Annotated[PhotoRepository, Depends(get_photo_repository)],
-    r2_storage: Annotated[R2Storage, Depends(get_r2_storage)],
+    r2_storage: Annotated[ObjectStorage, Depends(get_storage)],
     whatsapp_service: Annotated[WhatsAppService, Depends(get_whatsapp_service)],
     report_service: Annotated[QuoteReportService, Depends(get_quote_report_service)],
 ) -> QuoteService:
@@ -334,7 +329,7 @@ TemplateRepoDep = Annotated[TemplateRepository, Depends(get_template_repository)
 PhotoRepoDep = Annotated[PhotoRepository, Depends(get_photo_repository)]
 QuoteRepoDep = Annotated[QuoteRepository, Depends(get_quote_repository)]
 ImageProcessingServiceDep = Annotated[ImageProcessingService, Depends(get_image_processing_service)]
-R2StorageDep = Annotated[R2Storage, Depends(get_r2_storage)]
+StorageDep = Annotated[ObjectStorage, Depends(get_storage)]
 PhotoServiceDep = Annotated[PhotoService, Depends(get_photo_service)]
 PhotoAnalysisServiceDep = Annotated[PhotoAnalysisService, Depends(get_photo_analysis_service)]
 GroqClientDep = Annotated[GroqClient, Depends(get_groq_client)]

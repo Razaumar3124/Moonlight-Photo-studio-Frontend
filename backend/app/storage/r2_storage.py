@@ -9,7 +9,7 @@ from botocore.exceptions import ClientError
 from app.core.config import get_settings
 from app.core.exceptions import ResourceNotFoundException, StorageUnavailableException
 
-logger = logging.getLogger("saf_studio.r2_storage")
+logger = logging.getLogger("moonlight_studio.r2_storage")
 
 
 class R2Storage:

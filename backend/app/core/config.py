@@ -1,15 +1,30 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# backend/ (this file is backend/app/core/config.py). Anchors .env and local storage so the
+# server behaves the same whether it is started from backend/ or from the repository root.
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+# Development-only fallback. Rejected when ENVIRONMENT=production (see
+# validate_production_requirements); generate real keys for every other environment too.
+INSECURE_DEV_SECRET_KEY = "dev-insecure-secret-key-change-me-moonlight-studio-local-only"
+
+# Placeholder business number shipped as a default; must be replaced in production.
+PLACEHOLDER_WHATSAPP_NUMBER = "919876543210"
 
 
 class Settings(BaseSettings):
     """Application configuration loaded from environment variables and .env file."""
 
     # Application metadata
-    APP_NAME: str = Field(default="SAF Studio API", description="Human-readable application name")
+    APP_NAME: str = Field(
+        default="Moonlight Photo Studio API",
+        description="Human-readable application name",
+    )
     VERSION: str = Field(default="0.1.0", description="API version string")
     ENVIRONMENT: Literal["development", "staging", "production", "test"] = Field(
         default="development",
@@ -26,7 +41,7 @@ class Settings(BaseSettings):
         description="MongoDB connection URI",
     )
     DATABASE_NAME: str = Field(
-        default="saf_studio",
+        default="moonlight_studio",
         description="MongoDB database name",
     )
     MONGODB_TIMEOUT_MS: int = Field(
@@ -48,8 +63,8 @@ class Settings(BaseSettings):
 
     # JWT & Authentication security
     SECRET_KEY: str = Field(
-        default="dev-insecure-secret-key-change-in-production-min-32-chars-saf-studio-2026",
-        description="Cryptographic secret key for signing JWT tokens",
+        default=INSECURE_DEV_SECRET_KEY,
+        description="Cryptographic secret key for signing JWT tokens (min 32 chars)",
     )
     JWT_ALGORITHM: str = Field(default="HS256", description="JWT signing algorithm")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
@@ -123,7 +138,7 @@ class Settings(BaseSettings):
         description="Resend REST API key (re_...)",
     )
     RESEND_FROM_EMAIL: str = Field(
-        default="SAF Studio <onboarding@resend.dev>",
+        default="Moonlight Photo Studio <onboarding@resend.dev>",
         description="Configured sender email address for transactional recovery emails",
     )
     RESEND_TEST_MODE: bool = Field(
@@ -131,8 +146,11 @@ class Settings(BaseSettings):
         description="Whether Resend testing mode is enabled to restrict recipient delivery",
     )
     RESEND_TEST_RECIPIENT: str = Field(
-        default="abdurrazzakshaikh31@gmail.com",
-        description="Permitted testing recipient email during development when RESEND_TEST_MODE is enabled",
+        default="",
+        description=(
+            "Only recipient allowed while RESEND_TEST_MODE is enabled "
+            "(the Resend account owner's address)"
+        ),
     )
     EMAIL_OTP_EXPIRE_MINUTES: int = Field(
         default=10,
@@ -167,6 +185,22 @@ class Settings(BaseSettings):
         description="Time window in seconds (1 hour) for per-IP OTP rate limiting",
     )
 
+    # Object storage backend: "local" (development filesystem) or "r2" (Cloudflare R2)
+    STORAGE_BACKEND: Literal["local", "r2"] = Field(
+        default="local",
+        description="Object storage for photos and quote previews. Production requires 'r2'.",
+    )
+    LOCAL_STORAGE_PATH: str = Field(
+        default="storage/local",
+        description="Root folder for STORAGE_BACKEND=local (relative paths resolve from backend/)",
+    )
+    LOCAL_STORAGE_URL_EXPIRATION_SECONDS: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Lifetime of signed local-storage download URLs",
+    )
+
     # Cloudflare R2 Object Storage
     R2_ACCOUNT_ID: str = Field(
         default="",
@@ -181,7 +215,7 @@ class Settings(BaseSettings):
         description="Cloudflare R2 Secret Access Key",
     )
     R2_BUCKET_NAME: str = Field(
-        default="saf-studio-photos",
+        default="moonlight-studio-photos",
         description="Private Cloudflare R2 bucket name for customer photographs",
     )
     R2_CUSTOM_DOMAIN: str = Field(
@@ -215,7 +249,7 @@ class Settings(BaseSettings):
 
     # Business Contact & WhatsApp Quotes (Phase 7)
     BUSINESS_WHATSAPP_NUMBER: str = Field(
-        default="919876543210",
+        default=PLACEHOLDER_WHATSAPP_NUMBER,
         description="Static business WhatsApp number without +, spaces or special chars",
     )
     PUBLIC_APP_URL: str = Field(
@@ -321,6 +355,63 @@ class Settings(BaseSettings):
             )
         return self
 
+    @model_validator(mode="after")
+    def validate_production_requirements(self) -> "Settings":
+        """Refuse to start production with development defaults or missing integrations.
+
+        Only variable names are reported, never their values.
+        """
+        if not self.is_production:
+            return self
+
+        problems: list[str] = []
+        secret = self.SECRET_KEY.strip()
+        if secret == INSECURE_DEV_SECRET_KEY or len(secret) < 32:
+            problems.append("SECRET_KEY must be a unique random value of at least 32 characters")
+        otp_secret = self.OTP_SECRET_KEY.strip()
+        if len(otp_secret) < 32 or otp_secret == secret:
+            problems.append(
+                "OTP_SECRET_KEY must be at least 32 characters and differ from SECRET_KEY"
+            )
+        if self.DEBUG:
+            problems.append("DEBUG must be false")
+        if self.STORAGE_BACKEND != "r2":
+            problems.append("STORAGE_BACKEND must be 'r2'")
+        else:
+            missing = [
+                name
+                for name in ("R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET_NAME")
+                if not str(getattr(self, name)).strip()
+            ]
+            if not (self.R2_ACCOUNT_ID.strip() or self.R2_ENDPOINT_URL.strip()):
+                missing.insert(0, "R2_ACCOUNT_ID (or R2_ENDPOINT_URL)")
+            if missing:
+                problems.append("missing " + ", ".join(missing))
+        if self.EMAIL_PROVIDER != "resend":
+            problems.append("EMAIL_PROVIDER must be 'resend' (mock drops password-reset codes)")
+        elif self.RESEND_TEST_MODE:
+            problems.append("RESEND_TEST_MODE must be false")
+        if self.GROQ_ENABLED and not self.GROQ_API_KEY.strip():
+            problems.append("GROQ_API_KEY is required when GROQ_ENABLED is true")
+        if self.BUSINESS_WHATSAPP_NUMBER == PLACEHOLDER_WHATSAPP_NUMBER:
+            problems.append("BUSINESS_WHATSAPP_NUMBER is still the placeholder")
+        if not self.PUBLIC_APP_URL.startswith("https://"):
+            problems.append("PUBLIC_APP_URL must use https://")
+
+        if problems:
+            raise ValueError("Invalid production configuration: " + "; ".join(problems) + ".")
+        return self
+
+    @property
+    def local_storage_root(self) -> Path:
+        """Absolute root folder for the local storage backend."""
+        root = Path(self.LOCAL_STORAGE_PATH).expanduser()
+        return root if root.is_absolute() else (BACKEND_DIR / root).resolve()
+
+    @property
+    def uses_insecure_dev_secret(self) -> bool:
+        return self.SECRET_KEY.strip() == INSECURE_DEV_SECRET_KEY
+
     @property
     def r2_effective_endpoint_url(self) -> str:
         """Construct the S3-compatible endpoint URL for Cloudflare R2."""
@@ -349,10 +440,12 @@ class Settings(BaseSettings):
         return True if self.is_production else self.COOKIE_SECURE
 
     model_config = SettingsConfigDict(
-        env_file=("backend/.env", ".env"),
+        env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
+        # Validation errors must never echo configuration values (they include secrets).
+        hide_input_in_errors=True,
     )
 
 

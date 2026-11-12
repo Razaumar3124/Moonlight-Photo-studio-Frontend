@@ -63,8 +63,8 @@ async def test_get_shared_report_html_default(
 
     html = response.text
 
-    # SAF Studio branding
-    assert "SAF Studio" in html
+    # Moonlight Photo Studio branding
+    assert "Moonlight Photo Studio" in html
     assert "Bespoke Gallery Framing" in html
 
     # Quote reference and design metadata
@@ -154,7 +154,7 @@ async def test_get_shared_report_expired_token_returns_404(
     token_hash = hash_token(raw_token)
 
     expired_quote = QuoteInDB(
-        quote_reference="SQ-2025-0001",
+        quote_reference="MQ-2025-0001",
         user_id="user_123",
         customer=QuoteContactSnapshot(
             full_name="Past User", email="past@example.com", phone="+919876543210"
@@ -162,7 +162,7 @@ async def test_get_shared_report_expired_token_returns_404(
         design_title="Old Wall",
         layout_style="grid",
         wall=QuoteWallSnapshot(width_inches=100.0, height_inches=80.0),
-        preview_image_key="quotes/user_123/SQ-2025-0001/preview.png",
+        preview_image_key="quotes/user_123/MQ-2025-0001/preview.png",
         share_token_hash=token_hash,
         share_token_prefix=raw_token[:8],
         status="draft",

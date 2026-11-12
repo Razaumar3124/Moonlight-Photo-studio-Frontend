@@ -40,3 +40,6 @@ dist/
 .DS_Store
 Thumbs.db
 
+
+# Local development object storage (STORAGE_BACKEND=local)
+/storage/

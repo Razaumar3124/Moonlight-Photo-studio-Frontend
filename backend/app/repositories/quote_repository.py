@@ -11,7 +11,7 @@ from pymongo.asynchronous.database import AsyncDatabase
 
 from app.models.quote import QuoteInDB
 
-logger = logging.getLogger("saf_studio.quote_repository")
+logger = logging.getLogger("moonlight_studio.quote_repository")
 
 
 class QuoteRepository:
@@ -25,7 +25,7 @@ class QuoteRepository:
     async def create_indexes(self) -> None:
         """Create necessary indexes for performance, uniqueness, and expiration."""
         try:
-            # 1. Unique index on human-readable quote reference (SQ-YYYY-XXXX)
+            # 1. Unique index on human-readable quote reference (MQ-YYYY-XXXX)
             await self.collection.create_index(
                 [("quote_reference", ASCENDING)],
                 unique=True,
@@ -57,7 +57,7 @@ class QuoteRepository:
             logger.warning("Could not complete quotes index creation: %s", exc)
 
     async def get_next_quote_reference(self) -> str:
-        """Atomically generate the next sequential quote reference code (SQ-YYYY-XXXX)."""
+        """Atomically generate the next sequential quote reference code (MQ-YYYY-XXXX)."""
         current_year = datetime.now(UTC).year
         counter_id = f"quote_ref_{current_year}"
 
@@ -68,7 +68,7 @@ class QuoteRepository:
             return_document=ReturnDocument.AFTER,
         )
         seq = doc.get("seq", 1) if doc else 1
-        return f"SQ-{current_year}-{seq:04d}"
+        return f"MQ-{current_year}-{seq:04d}"
 
     async def create(self, quote: QuoteInDB) -> QuoteInDB:
         """Insert a newly prepared quote document into MongoDB."""

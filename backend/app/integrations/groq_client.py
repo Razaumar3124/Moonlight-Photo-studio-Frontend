@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import Settings
 
-logger = logging.getLogger("saf_studio.groq_client")
+logger = logging.getLogger("moonlight_studio.groq_client")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
