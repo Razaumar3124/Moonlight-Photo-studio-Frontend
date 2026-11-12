@@ -243,6 +243,10 @@ async def get_photo_preview(
             "model": ApiErrorResponse,
             "description": "Photograph not found",
         },
+        status.HTTP_409_CONFLICT: {
+            "model": ApiErrorResponse,
+            "description": "PHOTO_IN_USE: a saved design still uses this photograph",
+        },
     },
     summary="Delete an owned photograph",
     description=(

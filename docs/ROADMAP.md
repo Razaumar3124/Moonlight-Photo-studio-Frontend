@@ -236,7 +236,27 @@ local fallbacks with live endpoints as the backend resolves API_ALIGNMENT items.
       377 → 379; 49/49 real-browser checks and 38/38 HTTP security checks against a throwaway local
       database
 
-## Next: frontend Phase 5 (planner API integration)
+## Frontend Phase 5: Memory Wall planner ↔ backend ✅ (2026-11-12)
 
-Phase 5 loads `GET /catalog`, saves designs through `/designs` (blocking Save while the layout doesn't
-fit), uploads photos and sends quotes through `/quotes/prepare`.
+- [x] Catalog: the planner loads `GET /catalog` and `GET /templates` before it renders, validates them
+      and installs them over the bundled defaults; failure falls back to the defaults with a notice
+- [x] Photos: library (`GET /photos`), upload with progress / retry / dedupe, "My photos" picker with
+      delete, signed URLs kept fresh (expiry check, tab focus, broken-image refresh)
+- [x] Designs: Save (create + version), Save as new, Open, My Designs (server search, paging, live
+      previews, delete), versions on every layout change, unsaved-changes indicator and warning
+- [x] Fit rules: Save and Request a Quote are blocked, with the reason, while the layout doesn't fit;
+      the server enforces the same rules
+- [x] Unsaved work survives a reload and an expired session (tab-only draft, cleared on sign-out)
+- [x] Legacy designs load (`mm`, legacy layout names, missing catalog ids, old wall limits, deleted photos)
+- [x] Backend: photo list adds `preview_url`; deleting a photo a design uses is refused (409
+      `PHOTO_IN_USE`); design search is literal, not a regular expression
+- [x] Removed the localStorage "My Designs" mock, the object-URL upload hook and their tests
+- [x] Frontend tests 256 → 342, backend 379 → 393; 65/65 real-browser checks and 83/83 HTTP security
+      checks against a throwaway local database
+
+Deferred to Phase 6: the quotation / WhatsApp workflow behind "Request a Quote" and report sharing.
+
+## Next: frontend Phase 6 (quotes and sharing)
+
+Phase 6 wires "Request a Quote" to `POST /quotes/prepare` (preview image, WhatsApp link, share report),
+using the saved design and its photos. The planner already blocks the action while the layout doesn't fit.

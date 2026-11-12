@@ -139,7 +139,7 @@ Both print the masked target first. Check it before running them against a share
 | Health | `GET /health/live`, `GET /health/ready`, `GET /health` |
 | Auth | `POST /auth/register`, `/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/google`; `GET /auth/me`; `POST /auth/forgot-password`, `/auth/forgot-password/verify`, `/auth/forgot-password/reset` |
 | Catalog | `GET /catalog`, `GET /frame-materials`, `GET /frames`, `GET /templates` |
-| Photos | `POST /photos/upload`, `GET /photos`, `GET /photos/{id}/thumbnail`, `GET /photos/{id}/preview`, `DELETE /photos/{id}` |
+| Photos | `POST /photos/upload`, `GET /photos` (signed thumbnail + preview URLs), `GET /photos/{id}/thumbnail`, `GET /photos/{id}/preview`, `DELETE /photos/{id}` (409 `PHOTO_IN_USE` while a saved design uses it) |
 | Geometry | `POST /geometry/validate-layout`, `/geometry/generate-layout`, `/geometry/regenerate`, `/geometry/redesign` |
 | Designs | `POST /designs`, `GET /designs`, `GET/PATCH/DELETE /designs/{id}`, `POST /designs/{id}/versions` |
 | Quotes | `POST /quotes/prepare`, `GET /quotes/{id}`, `GET /quotes/share/{token}`, `GET /quotes/share/{token}/preview`; short link `GET /q/{token}` |

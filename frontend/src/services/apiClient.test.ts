@@ -274,6 +274,143 @@ describe('session refresh', () => {
   })
 })
 
+function xhrAt(index: number): FakeXhr {
+  const xhr = FakeXhr.instances[index]
+  if (!xhr) throw new Error(`no request #${index}`)
+  return xhr
+}
+
+class FakeXhr {
+  static instances: FakeXhr[] = []
+  method = ''
+  url = ''
+  headers: Record<string, string> = {}
+  withCredentials = false
+  body: unknown = null
+  status = 0
+  responseText = ''
+  upload: { onprogress: ((e: { lengthComputable: boolean; loaded: number; total: number }) => void) | null } =
+    {
+      onprogress: null,
+    }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  onabort: (() => void) | null = null
+  constructor() {
+    FakeXhr.instances.push(this)
+  }
+  open(method: string, url: string) {
+    this.method = method
+    this.url = url
+  }
+  setRequestHeader(name: string, value: string) {
+    this.headers[name] = value
+  }
+  send(body: unknown) {
+    this.body = body
+  }
+  abort() {
+    this.onabort?.()
+  }
+  respond(status: number, body: unknown) {
+    this.status = status
+    this.responseText = JSON.stringify(body)
+    this.onload?.()
+  }
+}
+
+describe('uploadFile', () => {
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+  const blob = new Blob(['x'], { type: 'image/png' })
+
+  async function start(session?: { accessToken: string; expiresAt: number }) {
+    FakeXhr.instances = []
+    const ctx = await setup(session)
+    vi.stubGlobal('XMLHttpRequest', FakeXhr)
+    return ctx
+  }
+
+  it('posts multipart with the bearer token, CSRF header and cookies, and reports progress', async () => {
+    const { uploadFile } = await start({ accessToken: 'tok', expiresAt: Date.now() + 60_000 })
+    const progress: number[] = []
+    const promise = uploadFile<{ id: string }>('/photos/upload', blob, 'a.png', {
+      onProgress: (p) => progress.push(p),
+    })
+    const xhr = xhrAt(0)
+    expect(xhr).toMatchObject({ method: 'POST', url: '/api/v1/photos/upload', withCredentials: true })
+    expect(xhr.headers).toMatchObject({ Authorization: 'Bearer tok', 'X-CSRF-Protection': '1' })
+    expect(xhr.body).toBeInstanceOf(FormData)
+    expect((xhr.body as FormData).get('file')).toBeInstanceOf(Blob)
+    xhr.upload.onprogress?.({ lengthComputable: true, loaded: 5, total: 10 })
+    xhr.upload.onprogress?.({ lengthComputable: false, loaded: 5, total: 0 })
+    xhr.respond(201, { id: 'p1' })
+    await expect(promise).resolves.toEqual({ id: 'p1' })
+    expect(progress).toEqual([0.5])
+  })
+
+  it('turns failures into ApiError without leaking server text', async () => {
+    const { uploadFile } = await start({ accessToken: 'tok', expiresAt: Date.now() + 60_000 })
+    const promise = uploadFile('/photos/upload', blob, 'a.png')
+    xhrAt(0).respond(422, {
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Too small',
+        details: [{ field: 'file', issue: 'Too small' }],
+        timestamp: '',
+      },
+    })
+    await expect(promise).rejects.toMatchObject({
+      status: 422,
+      code: 'VALIDATION_ERROR',
+      fieldErrors: { file: 'Too small' },
+    })
+
+    const net = uploadFile('/photos/upload', blob, 'a.png')
+    xhrAt(1).onerror?.()
+    await expect(net).rejects.toMatchObject({ code: 'NETWORK_ERROR', status: 0 })
+  })
+
+  it('renews the access token once on 401 and retries the upload', async () => {
+    const { uploadFile, fetchMock } = await start({ accessToken: 'old', expiresAt: Date.now() + 60_000 })
+    fetchMock.mockResolvedValue(json(200, NEW_TOKENS))
+    const promise = uploadFile<{ id: string }>('/photos/upload', blob, 'a.png')
+    xhrAt(0).respond(401, UNAUTHORIZED)
+    await tick()
+    await tick()
+    expect(isRefresh(fetchMock.mock.calls[0]?.[0])).toBe(true)
+    const retry = xhrAt(1)
+    expect(retry.headers.Authorization).toBe('Bearer fresh')
+    retry.respond(201, { id: 'p2' })
+    await expect(promise).resolves.toEqual({ id: 'p2' })
+  })
+
+  it('ends the session when the retry is rejected too', async () => {
+    const { uploadFile, fetchMock, setUnauthorizedHandler, tokenStorage } = await start({
+      accessToken: 'old',
+      expiresAt: Date.now() + 60_000,
+    })
+    const handler = vi.fn<(error: unknown) => void>()
+    setUnauthorizedHandler(handler)
+    fetchMock.mockResolvedValue(json(200, NEW_TOKENS))
+    const promise = uploadFile('/photos/upload', blob, 'a.png')
+    xhrAt(0).respond(401, UNAUTHORIZED)
+    await tick()
+    await tick()
+    xhrAt(1).respond(401, UNAUTHORIZED)
+    await expect(promise).rejects.toMatchObject({ status: 401 })
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(tokenStorage.hasSession()).toBe(false)
+  })
+
+  it('can be cancelled', async () => {
+    const { uploadFile } = await start({ accessToken: 'tok', expiresAt: Date.now() + 60_000 })
+    const controller = new AbortController()
+    const promise = uploadFile('/photos/upload', blob, 'a.png', { signal: controller.signal })
+    controller.abort()
+    await expect(promise).rejects.toMatchObject({ name: 'AbortError' })
+  })
+})
+
 describe('resolveApiUrl', () => {
   it('resolves host-relative paths and passes safe absolute URLs through', async () => {
     const { resolveApiUrl } = await setup()

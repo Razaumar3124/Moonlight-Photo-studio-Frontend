@@ -5,8 +5,8 @@ import type { TemplateCategory } from './templates'
 /* --------------------------- §3.1 Planner catalog -------------------------- */
 /*
  * The backend is the source of truth for every planner option and rule. IDs are permanent and
- * are what designs and quotes store. `features/memory-wall/constants.ts` mirrors this until
- * Phase 5 loads it from the API; backend/tests/test_catalog_contract.py fails if they drift.
+ * are what designs and quotes store. The planner loads this at start (`features/memory-wall/lib/catalog.ts`);
+ * `constants.ts` keeps bundled defaults that backend/tests/test_catalog_contract.py checks against it.
  */
 
 export interface CatalogFrameSize {

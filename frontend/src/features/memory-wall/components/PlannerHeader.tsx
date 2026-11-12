@@ -30,6 +30,10 @@ interface PlannerHeaderProps {
   onOpenDesigns: () => void
   onSave: () => void
   onQuote: () => void
+  /** "Saved" / "Unsaved changes", or null for a fresh, untouched design. */
+  saveStatus: 'saved' | 'unsaved' | null
+  /** The layout doesn't fit: Save and Request a Quote explain why instead of proceeding. */
+  actionsBlocked: boolean
   /** Phones show Request a Quote in the bottom bar instead. */
   showQuote: boolean
 }
@@ -49,6 +53,8 @@ export function PlannerHeader({
   onOpenDesigns,
   onSave,
   onQuote,
+  saveStatus,
+  actionsBlocked,
   showQuote,
 }: PlannerHeaderProps) {
   return (
@@ -67,6 +73,17 @@ export function PlannerHeader({
             title={title}
           >
             {title}
+            {saveStatus && (
+              <span
+                role="status"
+                className={cn(
+                  'ml-2 align-middle font-sans text-[0.6875rem] font-medium',
+                  saveStatus === 'unsaved' ? 'text-gold-600' : 'text-charcoal-500',
+                )}
+              >
+                {saveStatus === 'unsaved' ? 'Unsaved changes' : 'Saved'}
+              </span>
+            )}
           </p>
         </div>
         <FitStatus
@@ -118,12 +135,13 @@ export function PlannerHeader({
           size="sm"
           leftIcon={<Bookmark aria-hidden />}
           onClick={onSave}
-          className={cn(!showQuote && 'hidden', 'max-sm:px-2')}
+          className={cn(!showQuote && 'hidden', 'max-sm:px-2', actionsBlocked && 'opacity-60')}
+          aria-disabled={actionsBlocked || undefined}
           aria-label="Save design"
         >
           <span className="max-sm:hidden">Save</span>
         </Button>
-        {showQuote && <RequestQuoteButton onClick={onQuote} className="h-8 px-3" />}
+        {showQuote && <RequestQuoteButton onClick={onQuote} blocked={actionsBlocked} className="h-8 px-3" />}
         <ProfileMenu onOpenDesigns={onOpenDesigns} />
       </nav>
     </header>
@@ -156,9 +174,12 @@ export function RequestQuoteButton({
   onClick,
   className,
   short = false,
+  blocked = false,
 }: {
   onClick: () => void
   className?: string
+  /** The layout doesn't fit: the click explains why (aria-disabled keeps it focusable). */
+  blocked?: boolean
   /** Visible label "Quote" (phone bottom bar); the accessible name stays "Request a quote". */
   short?: boolean
 }) {
@@ -167,7 +188,8 @@ export function RequestQuoteButton({
       variant="dark"
       size="sm"
       onClick={onClick}
-      className={cn('group', className)}
+      className={cn('group', blocked && 'opacity-60', className)}
+      aria-disabled={blocked || undefined}
       aria-label="Request a quote"
     >
       <span className="inline-flex items-center gap-1.5 whitespace-nowrap">

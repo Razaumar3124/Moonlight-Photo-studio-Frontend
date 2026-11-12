@@ -9,10 +9,13 @@ import { GenerateCluster, type GenerateHandlers } from './Stage'
  */
 export function MobileActionBar({
   onQuote,
+  blocked = false,
   hidden = false,
   ...generate
 }: GenerateHandlers & {
   onQuote: () => void
+  /** The layout doesn't fit, so a quote can't be requested yet. */
+  blocked?: boolean
   hidden?: boolean
 }) {
   return (
@@ -24,7 +27,7 @@ export function MobileActionBar({
       )}
     >
       <GenerateCluster tone="bar" className="min-w-0 flex-1" {...generate} />
-      <RequestQuoteButton short onClick={onQuote} className="h-11 px-3.5 text-sm" />
+      <RequestQuoteButton short blocked={blocked} onClick={onQuote} className="h-11 px-3.5 text-sm" />
     </nav>
   )
 }

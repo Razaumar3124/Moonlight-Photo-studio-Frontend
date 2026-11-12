@@ -79,6 +79,22 @@ class AccountAlreadyExistsException(AppException):
         )
 
 
+class PhotoInUseException(AppException):
+    """Raised when deleting a photo that saved designs still use."""
+
+    def __init__(self, designs_count: int):
+        noun = "design" if designs_count == 1 else "designs"
+        super().__init__(
+            message=(
+                f"This photo is used in {designs_count} saved {noun}. "
+                "Remove it from those designs before deleting it."
+            ),
+            code="PHOTO_IN_USE",
+            status_code=status.HTTP_409_CONFLICT,
+            details=[{"field": "id", "issue": f"Used in {designs_count} saved {noun}"}],
+        )
+
+
 class InvalidCredentialsException(AppException):
     """Raised when credentials do not match records (deliberately non-enumerating)."""
 

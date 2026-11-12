@@ -29,7 +29,9 @@ export interface FrameGeometry {
 export function frameGeometry(
   frame: Pick<FrameConfig, 'sizeId' | 'orientation' | 'finishId' | 'mount'>,
 ): FrameGeometry {
-  const size = FRAME_SIZES.find((s) => s.id === frame.sizeId) ?? FRAME_SIZES[3] ?? { w: 12, h: 16 }
+  const size = FRAME_SIZES.find((s) => s.id === frame.sizeId) ??
+    FRAME_SIZES.find((s) => s.recommended) ??
+    FRAME_SIZES[0] ?? { w: 12, h: 16 }
   const [w, h] = frame.orientation === 'portrait' ? [size.w, size.h] : [size.h, size.w]
   const profileIn = WOOD_FINISHES.find((f) => f.id === frame.finishId)?.profileIn ?? 1
   const matIn = frame.mount.enabled ? frame.mount.marginIn : 0
@@ -87,13 +89,20 @@ export interface Scene {
   warnings: SceneWarning[]
 }
 
+/** Signed URL for an uploaded photo (the photo library owns them and refreshes them before expiry). */
+export type PhotoUrlResolver = (photoId: string) => string | undefined
+
 function photoFor(
   ref: PhotoRef | null,
   index: number,
   orientation: Orientation,
   fill: boolean,
+  photoUrl: PhotoUrlResolver | undefined,
 ): ScenePhoto | null {
-  if (ref?.kind === 'upload') return { href: ref.url, isFill: false, alt: ref.name }
+  if (ref?.kind === 'upload') {
+    const href = photoUrl?.(ref.photoId)
+    return href ? { href, isFill: false, alt: ref.name } : null
+  }
   let sampleId: string | undefined
   if (ref?.kind === 'sample') sampleId = ref.sampleId
   else if (fill) {
@@ -108,6 +117,8 @@ function photoFor(
 /** Everything the geometry depends on (and nothing else, so callers can memoise precisely). */
 export type SceneInput = Pick<PlannerState, 'wall' | 'layout' | 'frames' | 'fillWithSamples'> & {
   preview: Pick<PlannerState['preview'], 'sofa'>
+  /** Where uploaded photos are shown from. Without it, uploaded frames render empty. */
+  photoUrl?: PhotoUrlResolver
 }
 
 /** Which frame sits in which layout slot: canonical for seed 0, reshuffled by "Regenerate". */
@@ -125,7 +136,7 @@ export function buildScene(
   state: SceneInput,
   overrides: Partial<{ style: LayoutStyleId; variant: number }> = {},
 ): Scene {
-  const { wall, layout, frames, preview, fillWithSamples } = state
+  const { wall, layout, frames, preview, fillWithSamples, photoUrl } = state
   const style = overrides.style ?? layout.style
   const variant = overrides.variant ?? layout.variant
   const W = wall.widthIn
@@ -184,7 +195,7 @@ export function buildScene(
       mountHex: frame.mount.enabled
         ? (MOUNT_COLOURS.find((m) => m.id === frame.mount.colourId)?.hex ?? '#F4F3F3')
         : null,
-      photo: photoFor(frame.photo, i, frame.orientation, fillWithSamples),
+      photo: photoFor(frame.photo, i, frame.orientation, fillWithSamples, photoUrl),
       label: `Frame ${i + 1}, ${size ? `${size.w} × ${size.h} in` : ''} ${frame.orientation}`,
     }
   })

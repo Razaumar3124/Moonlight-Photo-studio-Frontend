@@ -57,7 +57,8 @@ def _ts_constants() -> str:
 
 
 def _ts_block(source: str, name: str) -> str:
-    start = source.index(f"export const {name}")
+    # Bundled defaults are `export let` (the backend catalog replaces them at runtime).
+    start = re.search(rf"export (?:const|let) {name}", source).start()
     # Up to the closing bracket of the array literal (not the `[]` in its type annotation).
     return source[start : source.index("\n]", start)]
 
@@ -132,7 +133,9 @@ def test_planner_rules_and_units_match_frontend():
 def test_templates_match_frontend():
     source = (FRONTEND / "lib" / "templates.ts").read_text(encoding="utf-8")
     body = source[
-        source.index("export const TEMPLATES") : source.index("export const TEMPLATE_CATEGORIES")
+        re.search(r"export (?:const|let) TEMPLATES", source).start() : source.index(
+            "export const TEMPLATE_CATEGORIES"
+        )
     ]
     blocks = re.split(r"\n  \{\n", body)[1:]
     token = re.compile(

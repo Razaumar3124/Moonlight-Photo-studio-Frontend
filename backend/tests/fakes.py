@@ -615,6 +615,18 @@ class FakeDesignRepository:
         self.version_counters[str(design.id)] = design.version_counter
         return design
 
+    async def count_designs_using_photo(self, photo_id: str) -> int:
+        design_ids = {
+            str(v["design_id"])
+            for v in self.versions.values()
+            if any(str(i.get("photo_id")) == str(photo_id) for i in v.get("items", []))
+        }
+        return sum(
+            1
+            for d in design_ids
+            if d in self.designs and not self.designs[d].get("is_deleted", False)
+        )
+
     async def get_design_by_id(
         self,
         design_id: str,

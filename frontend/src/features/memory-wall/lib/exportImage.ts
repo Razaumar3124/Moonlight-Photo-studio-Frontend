@@ -16,16 +16,28 @@ const EXPORT_WIDTH_PX = 2400
 const MAX_EMBED_PX = EXPORT_WIDTH_PX
 
 /**
- * Inline an image as a data URL. Loaded through <img> (CSP `img-src` allows self, blob: and
- * data:), NOT fetch(): `connect-src` deliberately doesn't allow blob:, so fetching an uploaded
- * photo's object URL fails in production. Re-encoding also shrinks 25 MB uploads to what the PNG
- * can actually show. WebP keeps transparency; browsers that can't encode it fall back to PNG.
+ * Inline an image as a data URL. Loaded through <img> (CSP `img-src` allows self, the API origin,
+ * blob: and data:), NOT fetch(): `connect-src` is kept narrow. Photos come from the API as signed
+ * URLs; when the API is on another origin they are requested in CORS mode (the API echoes the
+ * allowed frontend origin), otherwise the canvas would be tainted and unreadable. Re-encoding also
+ * shrinks 25 MB uploads to what the PNG can actually show. WebP keeps transparency; browsers that
+ * can't encode it fall back to PNG.
  */
+function isCrossOrigin(href: string): boolean {
+  if (!/^https?:/i.test(href)) return false
+  try {
+    return new URL(href).origin !== window.location.origin
+  } catch {
+    return false
+  }
+}
+
 async function toDataUrl(href: string, cache: Map<string, Promise<string>>): Promise<string> {
   const hit = cache.get(href)
   if (hit) return hit
   const task = (async () => {
     const img = new Image()
+    if (isCrossOrigin(href)) img.crossOrigin = 'anonymous'
     img.src = href
     await img.decode()
     const scale = Math.min(1, MAX_EMBED_PX / Math.max(img.naturalWidth, img.naturalHeight, 1))

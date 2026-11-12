@@ -33,7 +33,7 @@ export interface QuoteDesignData {
     orientation?: 'portrait' | 'landscape'
     finishId: string
     mount?: { enabled?: boolean; colourId?: string | null; marginIn?: number }
-    /** Uploads must reference a photo the user uploaded; session object URLs are ignored. */
+    /** Uploads must reference a photo the user uploaded (`photoId`). */
     photo?: {
       kind: 'sample' | 'upload' | 'none'
       sampleId?: string

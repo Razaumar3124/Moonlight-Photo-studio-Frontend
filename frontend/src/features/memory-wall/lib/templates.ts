@@ -2,9 +2,10 @@ import type { LayoutStyleId, Orientation } from '../constants'
 import type { TemplateSpec } from './plannerState'
 
 /**
- * Layout templates (mock catalogue). Shaped like the planner's TemplateSpec rather than the
- * API's LayoutTemplate: the API describes slots by relative position, while the planner computes
- * positions itself. Phase 5 maps GET /templates → these (API_ALIGNMENT M6/M10).
+ * Layout templates. Shaped like the planner's TemplateSpec rather than the API's LayoutTemplate:
+ * the API describes slots by relative position, while the planner computes positions itself.
+ * `lib/catalog.ts` maps GET /templates → these and installs them; the list below is the bundled
+ * default used until then (and if the request fails).
  */
 export interface PlannerTemplate extends TemplateSpec {
   id: string
@@ -15,7 +16,8 @@ export interface PlannerTemplate extends TemplateSpec {
 const many = (count: number, sizeId: string, orientation: Orientation = 'portrait') =>
   Array.from({ length: count }, () => ({ sizeId, orientation }))
 
-export const TEMPLATES: readonly PlannerTemplate[] = [
+/** Bundled defaults; replaced by `installTemplates` with GET /templates (lib/catalog.ts). */
+export let TEMPLATES: readonly PlannerTemplate[] = [
   {
     id: 'balanced-grid',
     name: 'Balanced Grid',
@@ -127,3 +129,8 @@ export const TEMPLATE_CATEGORIES: ReadonlyArray<{ value: 'all' | LayoutStyleId; 
 ]
 
 export const findTemplate = (id: string) => TEMPLATES.find((t) => t.id === id)
+
+/** Replace the template list (validated by `lib/catalog.ts`). Call before the planner renders. */
+export function installTemplates(next: readonly PlannerTemplate[]) {
+  TEMPLATES = next
+}

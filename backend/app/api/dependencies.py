@@ -236,19 +236,6 @@ async def get_storage(
     return create_storage(settings)
 
 
-async def get_photo_service(
-    photo_repo: Annotated[PhotoRepository, Depends(get_photo_repository)],
-    image_service: Annotated[ImageProcessingService, Depends(get_image_processing_service)],
-    r2_storage: Annotated[ObjectStorage, Depends(get_storage)],
-) -> PhotoService:
-    """Dependency for PhotoService."""
-    return PhotoService(
-        photo_repo=photo_repo,
-        image_service=image_service,
-        r2_storage=r2_storage,
-    )
-
-
 async def get_photo_analysis_service(
     photo_repo: Annotated[PhotoRepository, Depends(get_photo_repository)],
     r2_storage: Annotated[ObjectStorage, Depends(get_storage)],
@@ -317,6 +304,21 @@ async def get_design_repository(
 ) -> DesignRepository:
     """Dependency for DesignRepository."""
     return DesignRepository(db)
+
+
+async def get_photo_service(
+    photo_repo: Annotated[PhotoRepository, Depends(get_photo_repository)],
+    image_service: Annotated[ImageProcessingService, Depends(get_image_processing_service)],
+    r2_storage: Annotated[ObjectStorage, Depends(get_storage)],
+    design_repo: Annotated[DesignRepository, Depends(get_design_repository)],
+) -> PhotoService:
+    """Dependency for PhotoService."""
+    return PhotoService(
+        photo_repo=photo_repo,
+        image_service=image_service,
+        r2_storage=r2_storage,
+        design_repo=design_repo,
+    )
 
 
 async def get_design_service(

@@ -7,11 +7,13 @@ from bson import ObjectId
 from app.core.config import get_settings
 from app.core.exceptions import (
     ForbiddenException,
+    PhotoInUseException,
     ResourceNotFoundException,
     StorageUnavailableException,
 )
 from app.core.security import generate_photo_signature, verify_photo_signature
 from app.models.photo import PhotoInDB
+from app.repositories.design_repository import DesignRepository
 from app.repositories.photo_repository import PhotoRepository
 from app.schemas.photo import (
     PhotosListResponse,
@@ -33,10 +35,12 @@ class PhotoService:
         photo_repo: PhotoRepository,
         image_service: ImageProcessingService,
         r2_storage: ObjectStorage,
+        design_repo: DesignRepository | None = None,
     ) -> None:
         self.photo_repo = photo_repo
         self.image_service = image_service
         self.r2_storage = r2_storage
+        self.design_repo = design_repo
 
     def _generate_signed_urls(self, photo_id: str) -> tuple[str, str]:
         """Generate short-lived HMAC signed paths for thumbnail and preview."""
@@ -191,7 +195,7 @@ class PhotoService:
 
         items: list[PhotoSummaryOut] = []
         for p in photos:
-            thumb_url, _ = self._generate_signed_urls(p.id)
+            thumb_url, prev_url = self._generate_signed_urls(p.id)
             items.append(
                 PhotoSummaryOut(
                     id=p.id,
@@ -200,6 +204,7 @@ class PhotoService:
                     height_px=p.height_px,
                     aspect_ratio=p.aspect_ratio,
                     thumbnail_url=thumb_url,
+                    preview_url=prev_url,
                     created_at=p.created_at.isoformat(),
                 )
             )
@@ -262,6 +267,12 @@ class PhotoService:
         # BOLA/IDOR protection
         if str(photo.user_id) != str(user_id):
             raise ForbiddenException("You do not have permission to delete this photograph.")
+
+        # Saved designs keep pointing at the photo: refuse instead of leaving them with holes.
+        if self.design_repo is not None:
+            in_use = await self.design_repo.count_designs_using_photo(photo_id)
+            if in_use:
+                raise PhotoInUseException(in_use)
 
         # Soft delete in database first
         await self.photo_repo.soft_delete(photo_id, user_id)

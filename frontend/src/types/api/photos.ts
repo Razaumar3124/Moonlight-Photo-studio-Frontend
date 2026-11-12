@@ -24,7 +24,14 @@ export interface Photo {
 /** GET /photos list item — a subset of Photo. */
 export type PhotoSummary = Pick<
   Photo,
-  'id' | 'original_filename' | 'width_px' | 'height_px' | 'aspect_ratio' | 'thumbnail_url' | 'created_at'
+  | 'id'
+  | 'original_filename'
+  | 'width_px'
+  | 'height_px'
+  | 'aspect_ratio'
+  | 'thumbnail_url'
+  | 'preview_url'
+  | 'created_at'
 >
 
 /** GET /photos?page&page_size */

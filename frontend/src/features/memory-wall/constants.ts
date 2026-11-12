@@ -4,10 +4,15 @@ import type { TemplateCategory } from '@/types/api'
 
 /**
  * Planner options and rules. The backend catalog (`GET /catalog`, backend/app/modules/catalog.py)
- * is the source of truth and publishes the same IDs and values; this file mirrors it until
- * Phase 5 loads the catalog from the API. backend/tests/test_catalog_contract.py parses this file
- * and fails if the two drift, so change IDs and values on both sides together. IDs are permanent:
- * saved designs and quotes store them.
+ * is the source of truth: `lib/catalog.ts` loads it when the planner opens and calls
+ * `installCatalog`, which replaces the lists below. The values written here are the bundled
+ * DEFAULTS, used until the catalog arrives and when it can't be fetched. backend/tests/
+ * test_catalog_contract.py parses this file and fails if the defaults drift from the backend, so
+ * change IDs and values on both sides together. IDs are permanent: saved designs and quotes store
+ * them.
+ *
+ * The lists are `export let` live bindings: importers always read the current value. They are
+ * replaced once, before the planner first renders, never while it is on screen.
  */
 
 export interface Swatch {
@@ -17,7 +22,7 @@ export interface Swatch {
 }
 
 /** "Paint Shade" → DesignWall.color_hex */
-export const PAINT_SHADES: readonly Swatch[] = [
+export let PAINT_SHADES: readonly Swatch[] = [
   { id: 'ivory-mist', label: 'Ivory Mist', hex: '#F0EBE4' },
   { id: 'warm-cream', label: 'Warm Cream', hex: '#EFDECA' },
   { id: 'sand', label: 'Sand', hex: '#E4CFB4' },
@@ -33,7 +38,7 @@ export interface WoodFinish extends Swatch {
 }
 
 /** "Wood Moulding & Finish" → catalog `frame_finishes` (`profile_inches`). */
-export const WOOD_FINISHES: readonly WoodFinish[] = [
+export let WOOD_FINISHES: readonly WoodFinish[] = [
   { id: 'walnut', label: 'Walnut', hex: '#784E2D', profileIn: 1 },
   { id: 'natural-oak', label: 'Natural Oak', hex: '#916843', profileIn: 1 },
   { id: 'ivory', label: 'Ivory', hex: '#FAF3E8', profileIn: 0.875 },
@@ -45,7 +50,7 @@ export const WOOD_FINISHES: readonly WoodFinish[] = [
 ]
 
 /** "Mount Colour" → DesignMatting.color_hex */
-export const MOUNT_COLOURS: readonly Swatch[] = [
+export let MOUNT_COLOURS: readonly Swatch[] = [
   { id: 'museum-white', label: 'Museum White', hex: '#F4F3F3' },
   { id: 'antique-white', label: 'Antique White', hex: '#EDE8E3' },
   { id: 'black', label: 'Black', hex: '#1D191A' },
@@ -64,7 +69,7 @@ export interface FrameSize {
 }
 
 /** Standard photo openings (inches) → catalog `frame_sizes`. */
-export const FRAME_SIZES: readonly FrameSize[] = [
+export let FRAME_SIZES: readonly FrameSize[] = [
   { id: '5x7', w: 5, h: 7, label: '5 x 7 inches' },
   { id: '8x10', w: 8, h: 10, label: '8 x 10 inches' },
   { id: '11x14', w: 11, h: 14, label: '11 x 14 inches' },
@@ -75,26 +80,38 @@ export const FRAME_SIZES: readonly FrameSize[] = [
   { id: '24x36', w: 24, h: 36, label: '24 x 36 inches (Statement)' },
 ]
 
-export const WALL_UNITS: readonly LengthUnit[] = ['ft', 'in', 'cm', 'm']
+export let WALL_UNITS: readonly LengthUnit[] = ['ft', 'in', 'cm', 'm']
 export const GAP_UNITS = ['in', 'cm'] as const satisfies readonly LengthUnit[]
 export type GapUnit = (typeof GAP_UNITS)[number]
 
-/** Physical rules of the planner (inches). */
-export const PLANNER_RULES = {
+export interface PlannerRulesConfig {
   /** Centre of the arrangement sits at gallery eye level. */
-  eyeLevelIn: 60,
+  eyeLevelIn: number
   /** Keep this clear of the wall's sides and ceiling. */
-  wallMarginIn: 6,
+  wallMarginIn: number
   /** Lowest the arrangement may go without furniture (skirting / switches). */
-  minBottomIn: 12,
+  minBottomIn: number
   /** Breathing room above the reference sofa. */
+  sofaClearanceIn: number
+  wallWidthIn: { min: number; max: number }
+  wallHeightIn: { min: number; max: number }
+  gapIn: { min: number; max: number }
+  matIn: { min: number; max: number; step: number }
+  frameCount: { min: number; max: number }
+}
+
+/** Physical rules of the planner (inches). */
+export let PLANNER_RULES: PlannerRulesConfig = {
+  eyeLevelIn: 60,
+  wallMarginIn: 6,
+  minBottomIn: 12,
   sofaClearanceIn: 8,
   wallWidthIn: { min: 36, max: 480 },
   wallHeightIn: { min: 48, max: 240 },
   gapIn: { min: 0, max: 12 },
   matIn: { min: 0, max: 6, step: 0.5 },
   frameCount: { min: 1, max: 16 },
-} as const
+}
 
 /**
  * Reference-sofa line used by the GEOMETRY (sofa clearance): measured on the original room photo
@@ -134,7 +151,7 @@ export const LAYOUT_STYLES = [
 export type LayoutStyleId = (typeof LAYOUT_STYLES)[number]['id']
 
 /** Alternative arrangements per layout style (Generate searches them; the Variations menu picks one). */
-export const VARIANT_COUNT = 3
+export let VARIANT_COUNT = 3
 
 /** AI Layout Assistant presets: featured templates with their bundled thumbnails. */
 export const AI_LAYOUT_PRESETS = [
@@ -159,3 +176,27 @@ export const AI_LAYOUT_PRESETS = [
     thumbnail: memoryWallAssets.layoutThumbnails.minimalRow,
   },
 ] as const
+
+/* ============================= Catalog install ============================= */
+
+/** A validated backend catalog (see `lib/catalog.ts`). */
+export interface CatalogData {
+  paintShades: readonly Swatch[]
+  woodFinishes: readonly WoodFinish[]
+  mountColours: readonly Swatch[]
+  frameSizes: readonly FrameSize[]
+  wallUnits: readonly LengthUnit[]
+  rules: PlannerRulesConfig
+  variantCount: number
+}
+
+/** Replace the bundled defaults with the backend catalog. Call before the planner renders. */
+export function installCatalog(data: CatalogData) {
+  PAINT_SHADES = data.paintShades
+  WOOD_FINISHES = data.woodFinishes
+  MOUNT_COLOURS = data.mountColours
+  FRAME_SIZES = data.frameSizes
+  WALL_UNITS = data.wallUnits
+  PLANNER_RULES = data.rules
+  VARIANT_COUNT = data.variantCount
+}

@@ -304,6 +304,113 @@ async function send<T>(
   return data as T
 }
 
+/* ============================ Upload with progress ============================ */
+
+export interface UploadOptions {
+  /** 0–1 of the request body sent. `fetch` can't report this, hence XMLHttpRequest. */
+  onProgress?: (fraction: number) => void
+  signal?: AbortSignal
+}
+
+/**
+ * multipart upload of one file (`field`, default `file`) with progress. Same rules as
+ * `apiRequest`: bearer token, CSRF header, cookies, ApiError on failure, and one renew-and-retry
+ * when the access token was rejected.
+ */
+export async function uploadFile<T>(
+  path: string,
+  file: Blob,
+  filename: string,
+  { onProgress, signal }: UploadOptions = {},
+  field = 'file',
+): Promise<T> {
+  const hadSession = tokenStorage.hasSession()
+  if (hadSession && !tokenStorage.getAccessToken()) {
+    try {
+      await refreshSession()
+    } catch {
+      // Offline: the upload fails on its own terms.
+    }
+  }
+
+  const attempt = (token: string | null) =>
+    new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', buildUrl(path))
+      xhr.withCredentials = true
+      xhr.setRequestHeader('Accept', 'application/json')
+      xhr.setRequestHeader(CSRF_HEADER, '1')
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+
+      const abort = () => xhr.abort()
+      signal?.addEventListener('abort', abort, { once: true })
+      const done = () => signal?.removeEventListener('abort', abort)
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable && onProgress) onProgress(Math.min(1, event.loaded / event.total))
+      }
+      xhr.onerror = () => {
+        done()
+        reject(
+          new ApiError({
+            status: 0,
+            code: 'NETWORK_ERROR',
+            message: 'Unable to reach the server. Check your connection and try again.',
+          }),
+        )
+      }
+      xhr.onabort = () => {
+        done()
+        reject(new DOMException('Aborted', 'AbortError'))
+      }
+      xhr.onload = () => {
+        done()
+        let data: unknown
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : undefined
+        } catch {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            return reject(
+              new ApiError({
+                status: xhr.status,
+                code: 'INVALID_RESPONSE',
+                message: 'Unexpected response from server.',
+              }),
+            )
+          }
+        }
+        if (xhr.status >= 200 && xhr.status < 300) return resolve(data as T)
+        reject(toApiError(xhr.status, data))
+      }
+
+      if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'))
+      const form = new FormData()
+      form.append(field, file, filename)
+      xhr.send(form)
+    })
+
+  const sent = tokenStorage.getAccessToken()
+  try {
+    return await attempt(sent)
+  } catch (error) {
+    if (!(isApiError(error) && error.isUnauthorized)) throw error
+    if (hadSession) {
+      const current = tokenStorage.getAccessToken()
+      const renewed = current && current !== sent ? true : await refreshSession()
+      if (renewed) {
+        try {
+          return await attempt(tokenStorage.getAccessToken())
+        } catch (retryError) {
+          if (isApiError(retryError) && retryError.isUnauthorized) endSession(retryError)
+          throw retryError
+        }
+      }
+      endSession(error)
+    }
+    throw error
+  }
+}
+
 /**
  * Typed HTTP helpers. Paths come from `endpoints.ts`; response types from `@/types/api`.
  * @example api.get<ListResponse<LayoutTemplate>>(endpoints.templates.list, { query: { category: 'grid' } })

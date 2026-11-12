@@ -51,6 +51,7 @@ export type KnownApiErrorCode =
   | 'CSRF_VALIDATION_FAILED' // 403
   | 'RESOURCE_NOT_FOUND' // 404
   | 'ACCOUNT_ALREADY_EXISTS' // 409 — details[].field is `email` or `phone`
+  | 'PHOTO_IN_USE' // 409 — a saved design still uses the photo
   | 'PAYLOAD_TOO_LARGE' // 413
   | 'RATE_LIMIT_EXCEEDED' // 429 + Retry-After
   | 'INTERNAL_SERVER_ERROR' // 500

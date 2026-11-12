@@ -7,6 +7,7 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl'
 import { cn } from '@/lib/cn'
 import { formatLength } from '@/lib/units'
 import { LAYOUT_STYLES, PLANNER_RULES, type LayoutStyleId } from '../../constants'
+import { usePhotos } from '../../hooks/usePhotoLibrary'
 import { buildScene } from '../../lib/geometry/scene'
 import { plannerReducer, type PlannerState } from '../../lib/plannerState'
 import { TEMPLATE_CATEGORIES, TEMPLATES, type PlannerTemplate } from '../../lib/templates'
@@ -71,10 +72,12 @@ function TemplateCard({
   onApply: () => void
 }) {
   // Same wall AND same sofa setting as the planner, so "Fits your wall" here means it fits there.
+  const { urlFor } = usePhotos()
   const scene = useMemo(() => {
     const preview: PlannerState = { ...state, fillWithSamples: true }
-    return buildScene(plannerReducer(preview, { type: 'template/apply', template, templateId: template.id }))
-  }, [template, state])
+    const next = plannerReducer(preview, { type: 'template/apply', template, templateId: template.id })
+    return buildScene({ ...next, photoUrl: urlFor })
+  }, [template, state, urlFor])
   const unit = state.displayUnit
   const codes = new Set(scene.warnings.map((w) => w.code))
   const needW = scene.arrangement.w + 2 * PLANNER_RULES.wallMarginIn

@@ -25,17 +25,18 @@ import { SwatchPicker } from '@/components/ui/SwatchPicker'
 import { TabPanel, Tabs } from '@/components/ui/Tabs'
 import { cn } from '@/lib/cn'
 import { FRAME_SIZES, MOUNT_COLOURS, PLANNER_RULES, WOOD_FINISHES, type Orientation } from '../constants'
-import { dpiQuality, effectiveDpi, type UploadResult } from '../hooks/usePhotoUpload'
+import { usePhotos } from '../hooks/usePhotoLibrary'
 import { frameGeometry, type Scene } from '../lib/geometry/scene'
+import { dpiQuality, effectiveDpi, toPhotoRef } from '../lib/photos'
 import type { FrameConfig, PlannerAction, PlannerState } from '../lib/plannerState'
 import { PREVIEW_OPTIONS } from '../lib/previewOptions'
+import { MyPhotosDialog } from './dialogs/MyPhotosDialog'
 
 interface PanelProps {
   state: PlannerState
   dispatch: Dispatch<PlannerAction>
 }
 
-type UploadPhoto = (file: File) => Promise<UploadResult>
 type InspectorTab = 'photo' | 'frame' | 'mount'
 
 const INSPECTOR_TABS = [
@@ -52,12 +53,9 @@ export function FrameInspector({
   state,
   dispatch,
   scene,
-  onUpload,
   className,
 }: PanelProps & {
   scene: Scene
-  /** Owned by the page, so uploaded photos outlive this panel (layout switches, Undo). */
-  onUpload: UploadPhoto
   className?: string
 }) {
   const [tab, setTab] = useState<InspectorTab>('photo')
@@ -129,7 +127,7 @@ export function FrameInspector({
 
       <TabPanel idBase={idBase} id="photo" active={tab === 'photo'} className="flex flex-col gap-3">
         {/* Keyed by frame: errors/progress belong to the frame they were for. */}
-        <PhotoPicker key={frame.id} frame={frame} index={index} dispatch={dispatch} upload={onUpload} />
+        <PhotoPicker key={frame.id} frame={frame} index={index} dispatch={dispatch} />
         <Switch
           size="sm"
           label="Fill empty frames with samples"
@@ -374,35 +372,51 @@ function PhotoPicker({
   frame,
   index,
   dispatch,
-  upload,
 }: {
   frame: FrameConfig
   index: number
   dispatch: Dispatch<PlannerAction>
-  upload: UploadPhoto
 }) {
+  const library = usePhotos()
   const inputRef = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
+  /** The file behind the last failed upload, so "Try again" doesn't need a new pick. */
+  const [failedFile, setFailedFile] = useState<File | null>(null)
+  const [progress, setProgress] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const [libraryOpen, setLibraryOpen] = useState(false)
+  const busy = progress !== null
   const photo = frame.photo
   const sample = photo?.kind === 'sample' ? samplePhotos.find((p) => p.id === photo.sampleId) : undefined
-  const thumb = photo?.kind === 'upload' ? photo.url : sample?.src
+  const uploaded = photo?.kind === 'upload' ? library.photos.find((p) => p.id === photo.photoId) : undefined
+  // Library not loaded yet: don't call a photo "missing" before we know.
+  const missing = photo?.kind === 'upload' && library.status === 'ready' && !uploaded
+  const thumb = uploaded?.thumbnailUrl ?? sample?.src
 
   const handleFile = async (file: File | undefined) => {
     if (!file || busy) return
     const frameId = frame.id
-    setBusy(true)
+    setProgress(0)
     setError(null)
-    const result = await upload(file)
-    setBusy(false)
+    setFailedFile(null)
+    const result = await library.upload(file, { onProgress: setProgress })
+    setProgress(null)
     if (result.ok) dispatch({ type: 'frames/setPhoto', frameId, photo: result.photo })
-    else setError(result.error)
+    else {
+      setError(result.error)
+      setFailedFile(file)
+    }
   }
 
   let info: React.ReactNode = 'JPEG, PNG or WebP up to 25 MB'
   let mismatch: Orientation | null = null
-  if (photo?.kind === 'upload') {
+  if (missing) {
+    info = (
+      <span className="text-danger-600">
+        This photo is no longer in your library. Choose another, or remove it.
+      </span>
+    )
+  } else if (photo?.kind === 'upload') {
     const g = frameGeometry(frame)
     const dpi = effectiveDpi(photo.widthPx, photo.heightPx, g.opening)
     const q = dpiQuality(dpi)
@@ -468,6 +482,7 @@ function PhotoPicker({
             <img
               src={thumb}
               alt={photo?.kind === 'upload' ? photo.name : (sample?.alt ?? '')}
+              onError={photo?.kind === 'upload' ? library.reportBroken : undefined}
               className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
             />
           ) : (
@@ -487,11 +502,18 @@ function PhotoPicker({
               size="sm"
               leftIcon={<ImagePlus aria-hidden />}
               loading={busy}
-              loadingText="Reading…"
+              loadingText={progress ? `Uploading ${Math.round(progress * 100)}%` : 'Uploading…'}
               onClick={() => inputRef.current?.click()}
             >
               {photo ? 'Replace' : 'Upload photo'}
             </Button>
+            <button
+              type="button"
+              onClick={() => setLibraryOpen(true)}
+              className="rounded-md px-1.5 py-1 text-[0.8125rem] font-semibold text-brand-700 hover:underline"
+            >
+              My photos
+            </button>
             <button
               type="button"
               disabled={!photo}
@@ -534,7 +556,30 @@ function PhotoPicker({
           </button>
         </p>
       )}
-      {error && <Alert tone="error">{error}</Alert>}
+      {error && (
+        <Alert tone="error">
+          <span>{error}</span>
+          {failedFile && (
+            <button
+              type="button"
+              className="ml-2 font-semibold underline underline-offset-2"
+              onClick={() => void handleFile(failedFile)}
+            >
+              Try again
+            </button>
+          )}
+        </Alert>
+      )}
+      <MyPhotosDialog
+        open={libraryOpen}
+        onClose={() => setLibraryOpen(false)}
+        currentPhotoId={photo?.kind === 'upload' ? photo.photoId : null}
+        onChoose={(chosen) => {
+          dispatch({ type: 'frames/setPhoto', frameId: frame.id, photo: toPhotoRef(chosen) })
+          setLibraryOpen(false)
+        }}
+        onDeleted={(photoId) => dispatch({ type: 'photos/forget', photoId })}
+      />
     </div>
   )
 }

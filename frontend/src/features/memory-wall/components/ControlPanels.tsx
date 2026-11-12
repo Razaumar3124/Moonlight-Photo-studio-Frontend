@@ -2,7 +2,6 @@ import { Eye, Frame as FrameIcon, LayoutDashboard, Ruler, SlidersHorizontal } fr
 import { useEffect, useId, useRef, type Dispatch } from 'react'
 import { TabPanel, Tabs } from '@/components/ui/Tabs'
 import { cn } from '@/lib/cn'
-import type { UploadResult } from '../hooks/usePhotoUpload'
 import type { Scene } from '../lib/geometry/scene'
 import type { PlannerAction, PlannerState } from '../lib/plannerState'
 import type { PlannerTemplate } from '../lib/templates'
@@ -16,7 +15,6 @@ export interface ControlPanelProps {
   state: PlannerState
   dispatch: Dispatch<PlannerAction>
   scene: Scene
-  onUpload: (file: File) => Promise<UploadResult>
   onApplyTemplate: (template: PlannerTemplate) => void
   onOpenTemplates: () => void
 }
@@ -69,7 +67,7 @@ export function SidePanel({
           <SetupSections {...p} />
         </TabPanel>
         <TabPanel idBase={idBase} id="frame" active={tab === 'frame'} className="min-h-full">
-          <FrameInspector state={p.state} dispatch={p.dispatch} scene={p.scene} onUpload={p.onUpload} />
+          <FrameInspector state={p.state} dispatch={p.dispatch} scene={p.scene} />
         </TabPanel>
       </div>
     </aside>
@@ -166,7 +164,7 @@ export function MobileSheet({
           />
         </TabPanel>
         <TabPanel idBase={idBase} id="frame" active={tab === 'frame'}>
-          <FrameInspector state={p.state} dispatch={p.dispatch} scene={p.scene} onUpload={p.onUpload} />
+          <FrameInspector state={p.state} dispatch={p.dispatch} scene={p.scene} />
         </TabPanel>
         <TabPanel idBase={idBase} id="view" active={tab === 'view'}>
           <ViewSettings state={p.state} dispatch={p.dispatch} />

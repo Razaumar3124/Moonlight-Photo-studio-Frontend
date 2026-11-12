@@ -202,8 +202,24 @@ frame configs → outer sizes (opening + mat + moulding)
 - Determinism: `(seed, variant)` fully determines an arrangement, so saved designs reopen
   identically. Seed 0 = canonical; "Regenerate" picks a new seed; the carousel picks the variant.
 - "Generate Layout" scores every style × variant (fits → ~25% coverage → aspect) and applies the best.
-- Mock seams for Phase 5: `savedDesigns.ts` (→ /designs), `templates.ts` (→ /templates),
-  `usePhotoUpload` (→ /photos/upload). The scene's warnings mirror /geometry/validate-layout.
+- The scene's warnings mirror /geometry/validate-layout; the server re-checks every save with the same rules.
+
+### Planner ↔ backend (Phase 5)
+
+- **Catalog:** `lib/catalog.ts` loads `GET /catalog` and `GET /templates` once (before the planner
+  renders, see `CatalogGate`), validates them, and installs them over the bundled defaults in
+  `constants.ts` / `lib/templates.ts` (`export let` live bindings). A failed or malformed response
+  keeps the defaults (contract-tested to match) and says so once.
+- **Photos:** `hooks/usePhotoLibrary` owns the user's library (`GET /photos`): upload with progress,
+  per-session duplicate detection, delete (409 `PHOTO_IN_USE` is explained, not an error), and
+  signed-URL freshness (refresh before `exp`, on tab focus, on `online`, and when an `<img>`
+  fails). Frames store only a `photoId`; the scene resolves the current URL (`SceneInput.photoUrl`).
+- **Designs:** `lib/designMapper` converts planner state ⇄ API (positions from the scene; the server
+  recomputes outer sizes), `lib/designSave` does create / new version / update with rollback, and
+  `useDesignList` + `useDesignPreview` drive My Designs. Saving is blocked while the layout doesn't fit.
+- **Unsaved work:** `lib/plannerDraft` keeps the planner (design content only) in `sessionStorage`
+  for this tab and user, so a reload or an expired session never loses it; a deliberate sign-out
+  deletes it (`lib/sessionData`).
 
 ## Forms
 

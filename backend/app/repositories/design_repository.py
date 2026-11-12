@@ -1,4 +1,5 @@
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -168,7 +169,9 @@ class DesignRepository:
             query["status"] = status
 
         if search:
-            query["title"] = {"$regex": search.strip(), "$options": "i"}
+            # Literal substring match: user text must never act as a regular expression (invalid
+            # patterns would error, and crafted ones can burn CPU in MongoDB).
+            query["title"] = {"$regex": re.escape(search.strip()), "$options": "i"}
 
         total = await self.designs.count_documents(query)
         if total == 0:
@@ -194,6 +197,22 @@ class DesignRepository:
             items.append(DesignInDB(**doc))
 
         return items, total
+
+    async def count_designs_using_photo(self, photo_id: str) -> int:
+        """How many live (not deleted) designs reference the photo in any of their versions."""
+        if not ObjectId.is_valid(photo_id):
+            return 0
+        design_ids = await self.versions.distinct(
+            "design_id", {"items.photo_id": ObjectId(photo_id)}
+        )
+        if not design_ids:
+            return 0
+        return await self.designs.count_documents(
+            {
+                "_id": {"$in": [d for d in design_ids if isinstance(d, ObjectId)]},
+                "is_deleted": False,
+            }
+        )
 
     async def get_next_version_number(self, design_id: str) -> int:
         """Atomically increment and return the sequential version counter for a design."""

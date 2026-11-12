@@ -15,13 +15,19 @@ import {
   type Orientation,
 } from '../constants'
 import { newSeed } from './geometry/random'
+import { findTemplate } from './templates'
 
 /* ================================== Types ================================== */
 
 export type PhotoRef =
   | { kind: 'sample'; sampleId: string }
-  /** Session-only upload (object URL). Not persisted; Phase 5 uploads to /photos. */
-  | { kind: 'upload'; url: string; name: string; widthPx: number; heightPx: number }
+  /**
+   * A photo the user uploaded (POST /photos/upload). Only the id is state: the signed URL it is
+   * shown from changes and expires, so the photo library resolves it at render time.
+   */
+  | { kind: 'upload'; photoId: string; name: string; widthPx: number; heightPx: number }
+
+export type UploadedPhotoRef = Extract<PhotoRef, { kind: 'upload' }>
 
 export interface FrameConfig {
   id: string
@@ -65,11 +71,22 @@ export interface TemplateSpec {
 
 /* ================================ Defaults ================================= */
 
-const DEFAULT_STYLE: FrameStyle = {
-  sizeId: '12x16',
-  orientation: 'portrait',
-  finishId: 'natural-oak',
-  mount: { enabled: true, colourId: 'museum-white', marginIn: 2 },
+/** The preferred id when the catalog offers it, else the first entry (a trimmed-down catalog). */
+const pick = (list: readonly { id: string }[], preferred: string) =>
+  list.find((x) => x.id === preferred)?.id ?? list[0]?.id ?? preferred
+
+/** Default frame. Computed per use because the catalog can replace the option lists once loaded. */
+function defaultStyle(): FrameStyle {
+  return {
+    sizeId: (FRAME_SIZES.find((s) => s.recommended) ?? FRAME_SIZES[0])?.id ?? '12x16',
+    orientation: 'portrait',
+    finishId: pick(WOOD_FINISHES, 'natural-oak'),
+    mount: {
+      enabled: true,
+      colourId: pick(MOUNT_COLOURS, 'museum-white'),
+      marginIn: clamp(2, PLANNER_RULES.matIn.min, PLANNER_RULES.matIn.max),
+    },
+  }
 }
 
 let frameCounter = 0
@@ -85,7 +102,7 @@ export function sampleFor(index: number, orientation: Orientation): PhotoRef {
 
 export function createFrame(
   index: number,
-  style: FrameStyle = DEFAULT_STYLE,
+  style: FrameStyle = defaultStyle(),
   withSample = true,
 ): FrameConfig {
   // Copy ONLY the style fields: callers may pass a whole FrameConfig (e.g. "add a frame like the
@@ -104,8 +121,8 @@ export function createFrame(
 export function createInitialState(): PlannerState {
   return {
     title: 'Living Room Gallery Wall',
-    templateId: 'balanced-grid',
-    wall: { widthIn: 144, heightIn: 108, paintId: 'warm-cream' },
+    templateId: findTemplate('balanced-grid') ? 'balanced-grid' : null,
+    wall: { widthIn: 144, heightIn: 108, paintId: pick(PAINT_SHADES, 'warm-cream') },
     displayUnit: 'ft',
     layout: { style: 'grid', gapIn: 3, gapUnit: 'in', seed: 0, variant: 0 },
     frames: Array.from({ length: 9 }, (_, i) => createFrame(i)),
@@ -135,6 +152,8 @@ export type PlannerAction =
   | { type: 'frames/applyToAll'; index: number }
   /** By frame id, not index: an upload can finish after frames were added, removed or replaced. */
   | { type: 'frames/setPhoto'; frameId: string; photo: PhotoRef | null }
+  /** A photo was deleted from the library: every frame showing it lets go of it. */
+  | { type: 'photos/forget'; photoId: string }
   | { type: 'samples/toggle'; value: boolean }
   | { type: 'preview/toggle'; key: keyof PlannerState['preview']; value: boolean }
   | { type: 'template/apply'; template: TemplateSpec; templateId?: string }
@@ -278,6 +297,12 @@ export function plannerReducer(state: PlannerState, action: PlannerAction): Plan
         state.frames.findIndex((f) => f.id === action.frameId),
         (f) => ({ ...f, photo: action.photo }),
       )
+    case 'photos/forget': {
+      const uses = (f: FrameConfig) => f.photo?.kind === 'upload' && f.photo.photoId === action.photoId
+      return state.frames.some(uses)
+        ? { ...state, frames: state.frames.map((f) => (uses(f) ? { ...f, photo: null } : f)) }
+        : state
+    }
     case 'samples/toggle':
       return { ...state, fillWithSamples: action.value }
     case 'preview/toggle':
@@ -286,10 +311,11 @@ export function plannerReducer(state: PlannerState, action: PlannerAction): Plan
       const { template } = action
       const frames = template.frames.slice(0, PLANNER_RULES.frameCount.max).map((spec, i) => {
         const previous = state.frames[i]
+        const fallback = defaultStyle()
         const base = createFrame(i, {
-          ...DEFAULT_STYLE,
+          ...fallback,
           ...spec,
-          mount: previous?.mount ?? DEFAULT_STYLE.mount,
+          mount: previous?.mount ?? fallback.mount,
         })
         // Keep the user's photos where the slot already had one.
         return previous?.photo ? { ...base, photo: previous.photo } : base
@@ -332,38 +358,62 @@ const numberIn = (v: unknown, rule: { min: number; max: number }, fallback: numb
   isFiniteNumber(v) ? clamp(v, rule.min, rule.max) : fallback
 const bool = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback)
 
+const PHOTO_ID_RE = /^[0-9a-f]{24}$/i
+const MAX_PHOTO_SIDE_PX = 20000
+
+/**
+ * Photo references are untrusted (storage, or a design read back from the API): samples must be
+ * bundled ones; uploads keep only a well-formed id, a short plain-text name and sane pixel sizes.
+ * Whether the photo still exists is decided later against the user's library.
+ */
+export function sanitizePhotoRef(photo: unknown): PhotoRef | null {
+  if (!isObject(photo)) return null
+  if (photo.kind === 'sample') {
+    const id = photo.sampleId
+    return typeof id === 'string' && samplePhotos.some((p) => p.id === id)
+      ? { kind: 'sample', sampleId: id }
+      : null
+  }
+  if (photo.kind === 'upload') {
+    const { photoId, name, widthPx, heightPx } = photo
+    if (typeof photoId !== 'string' || !PHOTO_ID_RE.test(photoId)) return null
+    const side = (v: unknown) => (isFiniteNumber(v) && v > 0 && v <= MAX_PHOTO_SIDE_PX ? Math.round(v) : 1)
+    return {
+      kind: 'upload',
+      photoId,
+      name: typeof name === 'string' ? name.trim().slice(0, 120) || 'Photo' : 'Photo',
+      widthPx: side(widthPx),
+      heightPx: side(heightPx),
+    }
+  }
+  return null
+}
+
 function sanitizeFrame(value: unknown, seen: Set<string>): FrameConfig | null {
   if (!isObject(value)) return null
+  const fallback = defaultStyle()
   const f = value as Loose<FrameConfig>
   const mount: Loose<FrameConfig['mount']> = isObject(f.mount) ? f.mount : {}
-  const photo: unknown = f.photo
-  const sample =
-    isObject(photo) &&
-    photo.kind === 'sample' &&
-    typeof photo.sampleId === 'string' &&
-    samplePhotos.some((p) => p.id === photo.sampleId)
-      ? ({ kind: 'sample', sampleId: photo.sampleId } as const)
-      : null
+  const photo = sanitizePhotoRef(f.photo)
   // Ids become React keys: replace missing or duplicate ones.
   const id = typeof f.id === 'string' && f.id && !seen.has(f.id) ? f.id.slice(0, 64) : newFrameId()
   seen.add(id)
   return {
     id,
-    sizeId: idOf(FRAME_SIZES, f.sizeId, DEFAULT_STYLE.sizeId),
+    sizeId: idOf(FRAME_SIZES, f.sizeId, fallback.sizeId),
     orientation: oneOf(['portrait', 'landscape'], f.orientation, 'portrait'),
-    finishId: idOf(WOOD_FINISHES, f.finishId, DEFAULT_STYLE.finishId),
+    finishId: idOf(WOOD_FINISHES, f.finishId, fallback.finishId),
     mount: {
       enabled: bool(mount.enabled, true),
-      colourId: idOf(MOUNT_COLOURS, mount.colourId, DEFAULT_STYLE.mount.colourId),
-      marginIn: numberIn(mount.marginIn, PLANNER_RULES.matIn, DEFAULT_STYLE.mount.marginIn),
+      colourId: idOf(MOUNT_COLOURS, mount.colourId, fallback.mount.colourId),
+      marginIn: numberIn(mount.marginIn, PLANNER_RULES.matIn, fallback.mount.marginIn),
     },
-    // Uploads are session object URLs (or, from tampered storage, arbitrary URLs): never restored.
-    photo: sample,
+    photo,
   }
 }
 
 /**
- * Rebuilds a PlannerState from untrusted data (localStorage now, the /designs API later):
+ * Rebuilds a PlannerState from untrusted data (the draft in sessionStorage, the /designs API):
  * unknown ids fall back to defaults, numbers are clamped to the planner rules, and anything that
  * isn't a known sample photo is dropped. Returns null when it isn't recognisably a design.
  */

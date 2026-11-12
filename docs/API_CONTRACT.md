@@ -71,7 +71,7 @@ Every error, including validation, auth, CSRF, size limits and unhandled 500s, u
 | 401 | `UNAUTHORIZED` (no token), `INVALID_CREDENTIALS` (same for unknown account and wrong password), `INVALID_TOKEN`, `TOKEN_EXPIRED`, `TOKEN_REVOKED`, `INVALID_GOOGLE_TOKEN` |
 | 403 | `FORBIDDEN` (someone else's resource), `ACCOUNT_DISABLED`, `CSRF_VALIDATION_FAILED` |
 | 404 | `RESOURCE_NOT_FOUND` |
-| 409 | `ACCOUNT_ALREADY_EXISTS` (`details[].field` = `email` or `phone`) |
+| 409 | `ACCOUNT_ALREADY_EXISTS` (`details[].field` = `email` or `phone`), `PHOTO_IN_USE` (deleting a photo that saved designs still use) |
 | 413 | `PAYLOAD_TOO_LARGE` (bodies over 1 MiB; photos over 25 MB; quote previews over 15 MB) |
 | 422 | `VALIDATION_ERROR` |
 | 429 | `RATE_LIMIT_EXCEEDED`, with a `Retry-After` header in seconds |
@@ -181,9 +181,9 @@ Unknown IDs are rejected with 422 (`"Unknown frame size; see GET /catalog frame_
 | Endpoint | Result |
 | --- | --- |
 | `POST /photos/upload` (multipart `file`) | **201** `Photo` |
-| `GET /photos?page&page_size` (≤ 100) | `{ items: PhotoSummary[], total, page, page_size }` |
+| `GET /photos?page&page_size` (≤ 100) | `{ items: PhotoSummary[], total, page, page_size }`, newest first. Each item has fresh signed `thumbnail_url` **and** `preview_url` |
 | `GET /photos/{id}/thumbnail` (300 px), `/preview` (1600 px) | Image bytes. These are **signed, short-lived URLs**, usable in `<img src>` without the Bearer header |
-| `DELETE /photos/{id}` | **204** (soft delete) |
+| `DELETE /photos/{id}` | **204** (soft delete). **409 `PHOTO_IN_USE`** while any live (not deleted) design uses the photo in any of its versions; the message says how many. Delete those designs first |
 
 - **`Photo`**: `{ id, user_id, original_filename, mime_type, file_size_bytes, width_px, height_px, aspect_ratio, suggested_orientation, thumbnail_url, preview_url, created_at }`. `PhotoSummary` is a subset of it.
 - **Accepted files**:
@@ -267,6 +267,7 @@ The engine is the server-side twin of the planner's layout code, with the same r
   - `preview.sofa` picks the sofa clearance; when absent, `wall.has_sofa` decides.
 - **Metadata**: `layout_metadata` and `preview` accept only the keys shown above (unknown keys → 422). Versions stored earlier may hold other keys.
 - **Duplicates**: saving exactly the current version again returns it instead of creating a new number.
+- **What a version holds**: the items, layout metadata and preview flags. The **title, wall size and paint** live on the design record (`PATCH /designs/{id}`) and apply to all versions, so changing only those does not create a version.
 
 **Outputs**:
 - `Design`: `{ id, user_id, title, description, wall, current_version_id, current_version_number, status, created_at, updated_at }`. `DesignListItem` adds `items_count`.
@@ -357,3 +358,5 @@ Form fields:
 | Designs | Create/get/version only, prices per item | List, PATCH, DELETE; catalog references (`size_id`, `finish_id`, `color_id`, `paint_id`); typed `layout_metadata` and `preview` (M7, M12, Q22) |
 | Quotes | `POST /quotes` with shipping address | `POST /quotes/prepare` → WhatsApp link + share report |
 | Units | Inches; `mm` | Inches on the wire; `display_unit` adds `m` |
+| Photos (Phase 5) | List had thumbnails only; any owner could delete a photo a design used | List adds `preview_url`; `DELETE` is refused with 409 `PHOTO_IN_USE` while a live design uses it |
+| Design search (Phase 5) | `search` was passed to MongoDB as a regular expression | Literal, case-insensitive substring match |

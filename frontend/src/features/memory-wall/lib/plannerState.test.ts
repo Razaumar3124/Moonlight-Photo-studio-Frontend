@@ -20,7 +20,13 @@ describe('plannerReducer guards', () => {
   it('sets photos by frame id, so a late upload never lands on the wrong frame', () => {
     const s = createInitialState()
     const target = must(s.frames[4])
-    const photo = { kind: 'upload', url: 'blob:x', name: 'a.jpg', widthPx: 900, heightPx: 1200 } as const
+    const photo = {
+      kind: 'upload',
+      photoId: '665f1c2e9b1d4a0012345678',
+      name: 'a.jpg',
+      widthPx: 900,
+      heightPx: 1200,
+    } as const
     // Frames 0-3 are removed while the upload is in flight…
     const shrunk = { ...s, frames: s.frames.slice(4) }
     const next = plannerReducer(shrunk, { type: 'frames/setPhoto', frameId: target.id, photo })
@@ -28,6 +34,33 @@ describe('plannerReducer guards', () => {
     expect(next.frames[0]?.photo).toEqual(photo)
     // …or the frame no longer exists at all.
     expect(plannerReducer(s, { type: 'frames/setPhoto', frameId: 'nope', photo })).toBe(s)
+  })
+})
+
+describe('photos/forget', () => {
+  const id = '665f1c2e9b1d4a0012345678'
+  const upload = { kind: 'upload', photoId: id, name: 'a.jpg', widthPx: 900, heightPx: 1200 } as const
+
+  it('clears a deleted photo from every frame that shows it, and only that photo', () => {
+    let s = createInitialState()
+    for (const i of [0, 2, 5]) {
+      s = plannerReducer(s, { type: 'frames/setPhoto', frameId: must(s.frames[i]).id, photo: upload })
+    }
+    s = plannerReducer(s, {
+      type: 'frames/setPhoto',
+      frameId: must(s.frames[3]).id,
+      photo: { ...upload, photoId: '665f1c2e9b1d4a00aaaaaaaa' },
+    })
+    const next = plannerReducer(s, { type: 'photos/forget', photoId: id })
+    expect(next.frames.map((f) => f.photo?.kind === 'upload' && f.photo.photoId === id)).not.toContain(true)
+    expect([0, 2, 5].map((i) => next.frames[i]?.photo)).toEqual([null, null, null])
+    expect(next.frames[3]?.photo).toMatchObject({ photoId: '665f1c2e9b1d4a00aaaaaaaa' })
+    expect(next.frames[1]?.photo).toEqual(s.frames[1]?.photo) // samples untouched
+  })
+
+  it('returns the same state when nothing uses the photo', () => {
+    const s = createInitialState()
+    expect(plannerReducer(s, { type: 'photos/forget', photoId: id })).toBe(s)
   })
 })
 
@@ -55,7 +88,7 @@ describe('sanitizePlannerState (untrusted saved designs)', () => {
           orientation: 'diagonal',
           finishId: 'gold-leaf',
           mount: { enabled: 'yes', colourId: 1, marginIn: 99 },
-          photo: { kind: 'upload', url: 'https://tracker.example/pixel.gif', name: 'x' },
+          photo: { kind: 'upload', photoId: 'not-an-id', name: 'x' },
         })),
         selectedIndex: 999,
         preview: null,
@@ -86,13 +119,53 @@ describe('sanitizePlannerState (untrusted saved designs)', () => {
     expect(() => buildScene(s)).not.toThrow()
   })
 
-  it('keeps known sample photos but never restores upload URLs', () => {
+  it('keeps known sample photos and well-formed upload references, and nothing else', () => {
     const base = createInitialState()
-    const frames = base.frames.map((f, i) =>
-      i === 0 ? { ...f, photo: { kind: 'upload', url: 'blob:old', name: 'a', widthPx: 1, heightPx: 1 } } : f,
-    )
-    const s = must(sanitizePlannerState({ ...base, frames }))
-    expect(s.frames[0]?.photo).toBeNull()
+    const withPhoto = (photo: unknown) =>
+      must(
+        sanitizePlannerState({
+          ...base,
+          frames: base.frames.map((f, i) => (i === 0 ? { ...f, photo } : f)),
+        }),
+      ).frames[0]?.photo
+    expect(
+      withPhoto({
+        kind: 'upload',
+        photoId: '665F1C2E9B1D4A0012345678',
+        name: ' a.jpg ',
+        widthPx: 900,
+        heightPx: 1200,
+      }),
+    ).toEqual({
+      kind: 'upload',
+      photoId: '665F1C2E9B1D4A0012345678',
+      name: 'a.jpg',
+      widthPx: 900,
+      heightPx: 1200,
+    })
+    // A URL smuggled in is dropped (only ids are state), and a malformed id invalidates the ref.
+    expect(
+      withPhoto({
+        kind: 'upload',
+        photoId: '665f1c2e9b1d4a0012345678',
+        url: 'https://x.example/p.gif',
+        name: 'x',
+      }),
+    ).toEqual({ kind: 'upload', photoId: '665f1c2e9b1d4a0012345678', name: 'x', widthPx: 1, heightPx: 1 })
+    for (const photoId of ['../../etc', 'javascript:alert(1)', '123', '', 42, null]) {
+      expect(withPhoto({ kind: 'upload', photoId, name: 'a', widthPx: 9, heightPx: 9 })).toBeNull()
+    }
+    // Absurd pixel sizes are replaced, not trusted.
+    expect(
+      withPhoto({
+        kind: 'upload',
+        photoId: '665f1c2e9b1d4a0012345678',
+        name: 'a',
+        widthPx: 1e9,
+        heightPx: -5,
+      }),
+    ).toMatchObject({ widthPx: 1, heightPx: 1 })
+    const s = must(sanitizePlannerState(base))
     expect(s.frames[1]?.photo).toEqual(base.frames[1]?.photo)
     const unknownSample = must(
       sanitizePlannerState({

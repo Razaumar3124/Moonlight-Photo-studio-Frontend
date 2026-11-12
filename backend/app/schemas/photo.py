@@ -47,6 +47,7 @@ class PhotoSummaryOut(BaseModel):
     height_px: int = Field(description="Natural image height in pixels")
     aspect_ratio: float = Field(description="Width divided by height")
     thumbnail_url: str = Field(description="Short-lived secure signed thumbnail URL")
+    preview_url: str = Field(description="Short-lived secure signed 1600px preview URL")
     created_at: str = Field(description="ISO-8601 UTC timestamp of creation")
 
     model_config = ConfigDict(
@@ -59,6 +60,7 @@ class PhotoSummaryOut(BaseModel):
                 "height_px": 3000,
                 "aspect_ratio": 1.3333,
                 "thumbnail_url": "/api/v1/photos/672cf3a9e4b0123456789def/thumbnail?sig=a1b2c3d4",
+                "preview_url": "/api/v1/photos/672cf3a9e4b0123456789def/preview?sig=e5f6a7b8",
                 "created_at": "2026-11-07T12:05:00.000Z",
             }
         },

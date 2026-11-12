@@ -59,6 +59,30 @@ used to be requests (API_ALIGNMENT Q2, Q3, Q17, Q18) are done:
 - **CSRF:** `apiClient` sends `X-CSRF-Protection: 1` on every non-GET request. The cookie
   endpoints reject requests without it, or from an `Origin` outside `CORS_ORIGINS`.
 
+## Planner data (Phase 5, 2026-11-12)
+
+- **Photos** are served by signed, expiring URLs (`?sig&exp`, HMAC over id + kind + expiry), so
+  `<img>` needs no token in the URL or a header. The signature binds the photo id and the kind
+  (a thumbnail signature can't open the preview), and tampering with `exp` invalidates it. Ownership
+  is checked on upload, list, delete and when a design references a photo (403 for someone else's).
+- **Deleting** a photo that a live design uses is refused (409), so designs never silently lose
+  their pictures. A user can't learn who else uses a photo: the ownership check comes first.
+- **Uploads** are checked on the client (type, 25 MB, pixel size) and again on the server from the
+  file's content (magic bytes, decoded and re-encoded, EXIF applied, 300–8192 px). SVG/HTML/PHP
+  payloads and truncated or oversized files are rejected; filenames are only labels (storage keys
+  use the photo id) and are rendered as text.
+- **Design search** is a literal substring match: user text is escaped before it reaches MongoDB's
+  `$regex` (it used to be a raw regular expression: invalid patterns errored, crafted ones could
+  burn CPU).
+- **Unsaved work** is kept in `sessionStorage` (this tab only): design content and photo ids, no
+  tokens, no photo bytes, no URLs. It belongs to one user id, is rebuilt through the same sanitiser as
+  any untrusted data, and is deleted on deliberate sign-out.
+- **Catalog and API data** are validated before use: a malformed `/catalog` is ignored as a whole,
+  invalid templates are skipped, and a design read back from the API goes through
+  `sanitizePlannerState` (unknown ids → defaults, numbers clamped, unsafe photo/sample ids dropped).
+- **PNG export** requests cross-origin photos in CORS mode (the API echoes the allowed frontend
+  origin), so the canvas isn't tainted; production needs the frontend origin in `CORS_ORIGINS`.
+
 ## Frontend session handling (Phase 4, 2026-11-12)
 
 - **Restore:** `AuthProvider` calls `POST /auth/refresh` (cookie sent automatically) and then

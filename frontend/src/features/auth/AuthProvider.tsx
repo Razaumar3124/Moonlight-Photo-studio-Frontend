@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { clearSessionData } from '@/lib/sessionData'
 import { isApiError, refreshSession, setUnauthorizedHandler } from '@/services/apiClient'
 import { authService } from '@/services/authService'
 import { tokenStorage } from '@/services/tokenStorage'
@@ -74,6 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           if (!isApiError(error) || error.status === 0 || error.status >= 500) throw error
         }
+        // A deliberate sign-out also forgets this person's unsaved planner work.
+        clearSessionData()
         signOutLocally()
       },
       clearNotice: () => setNotice(null),

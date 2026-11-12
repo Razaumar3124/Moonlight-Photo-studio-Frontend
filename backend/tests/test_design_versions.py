@@ -226,7 +226,7 @@ async def test_missing_photo_strategy(
     fake_photo_repo: FakePhotoRepository,
 ):
     """EP-DSGN-03: If photo is deleted after saving design, retrieval flags photo_missing."""
-    _, token = await register_test_user(client, "missing_photo_tester@example.com")
+    user, token = await register_test_user(client, "missing_photo_tester@example.com")
 
     # 1. Upload photo
     raw_img = make_test_image(width=400, height=300)
@@ -276,12 +276,9 @@ async def test_missing_photo_strategy(
         json=ver_payload,
     )
 
-    # 3. Soft-delete the photo via Photo API
-    del_photo_res = await client.delete(
-        f"/api/v1/photos/{photo_id}",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert del_photo_res.status_code == 204
+    # 3. The photo disappears behind the design's back (deleted before the in-use guard existed,
+    #    or removed by an operator): the Photo API itself now refuses, see test_photo_in_use.py.
+    assert await fake_photo_repo.soft_delete(photo_id, user["id"])
 
     # 4. Retrieve design details: Should SUCCEED and mark photo_missing = True
     get_res = await client.get(
