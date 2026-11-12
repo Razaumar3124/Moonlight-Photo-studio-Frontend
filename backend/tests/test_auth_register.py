@@ -38,14 +38,15 @@ async def test_register_success(client: AsyncClient):
     # Check tokens
     tokens = data["tokens"]
     assert "access_token" in tokens
-    assert "refresh_token" in tokens
+    assert "refresh_token" not in tokens  # cookie only
     assert tokens["token_type"] == "bearer"
     assert tokens["expires_in"] == 1800
 
     # Verify httpOnly refresh cookie was set
     cookies = response.cookies
     assert "refresh_token" in cookies
-    assert cookies["refresh_token"] == tokens["refresh_token"]
+    assert len(cookies["refresh_token"]) >= 40
+    assert "httponly" in response.headers["set-cookie"].lower()
 
 
 @pytest.mark.asyncio
@@ -215,38 +216,6 @@ async def test_register_rate_limiting(client: AsyncClient):
     )
     assert res_blocked.status_code == 429
     assert res_blocked.json()["error"]["code"] == "RATE_LIMIT_EXCEEDED"
-
-
-@pytest.mark.asyncio
-async def test_register_proxy_headers_client_ip(client: AsyncClient):
-    """Test that CF-Connecting-IP and X-Forwarded-For isolate rate limits between proxy clients."""
-    # Register from IP 1
-    p1 = {
-        "full_name": "Proxy User Alpha",
-        "email": "proxy1@example.com",
-        "phone": "+919876543210",
-        "password": "Password123!",
-    }
-    res1 = await client.post(
-        "/api/v1/auth/register",
-        json=p1,
-        headers={"CF-Connecting-IP": "203.0.113.10"},
-    )
-    assert res1.status_code == 201
-
-    # Register from IP 2 through same proxy
-    p2 = {
-        "full_name": "Proxy User Beta",
-        "email": "proxy2@example.com",
-        "phone": "+919876543211",
-        "password": "Password123!",
-    }
-    res2 = await client.post(
-        "/api/v1/auth/register",
-        json=p2,
-        headers={"CF-Connecting-IP": "203.0.113.20"},
-    )
-    assert res2.status_code == 201
 
 
 @pytest.mark.asyncio

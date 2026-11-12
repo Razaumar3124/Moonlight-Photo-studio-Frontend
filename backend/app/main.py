@@ -6,10 +6,13 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.dependencies import CSRF_HEADER
 from app.api.v1.router import api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.handlers import register_exception_handlers
 from app.core.logging import sanitize_sensitive_data, setup_logging
+from app.core.middleware import BodySizeLimitMiddleware, SecurityHeadersMiddleware
+from app.core.security import warm_up_password_hashing
 from app.db.mongodb import mongo_manager
 from app.repositories.catalog_repository import CatalogRepository
 from app.repositories.design_repository import DesignRepository
@@ -18,6 +21,7 @@ from app.repositories.quote_repository import QuoteRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.template_repository import TemplateRepository
 from app.repositories.user_repository import UserRepository
+from app.services.rate_limiter import ensure_rate_limit_indexes
 
 logger = logging.getLogger("moonlight_studio.app")
 
@@ -52,6 +56,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             'python -c "import secrets; print(secrets.token_urlsafe(48))"'
         )
 
+    # Unknown-account logins must cost the same Argon2id work as real ones from request one.
+    warm_up_password_hashing()
+
     # 2. Initialize asynchronous MongoDB connection pool and indexes
     if settings.ENVIRONMENT != "test":
         try:
@@ -70,6 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await photo_repo.create_indexes()
             await design_repo.create_indexes()
             await quote_repo.create_indexes()
+            await ensure_rate_limit_indexes(mongo_manager.get_database())
             logger.info("MongoDB collection indexes verified")
         except Exception as exc:
             logger.warning(
@@ -108,13 +116,17 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # Configure CORS
+    # Middleware order: the last one added runs first. CORS is outermost so even 413/500
+    # responses carry CORS headers the browser can read.
+    application.add_middleware(BodySizeLimitMiddleware)
+    application.add_middleware(SecurityHeadersMiddleware)
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=["Authorization", "Content-Type", "Accept", CSRF_HEADER],
+        max_age=600,
     )
 
     # Register global error normalization handlers

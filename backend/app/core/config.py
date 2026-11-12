@@ -1,9 +1,11 @@
+import ipaddress
+import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # backend/ (this file is backend/app/core/config.py). Anchors .env and local storage so the
 # server behaves the same whether it is started from backend/ or from the repository root.
@@ -50,7 +52,7 @@ class Settings(BaseSettings):
     )
 
     # CORS settings
-    CORS_ORIGINS: list[str] = Field(
+    CORS_ORIGINS: Annotated[list[str], NoDecode] = Field(
         default=["http://localhost:5173", "http://127.0.0.1:5173"],
         description="List of allowed CORS origins",
     )
@@ -95,6 +97,42 @@ class Settings(BaseSettings):
     COOKIE_DOMAIN: str | None = Field(
         default=None, description="Optional cookie domain restriction"
     )
+    REFRESH_COOKIE_PATH: str | None = Field(
+        default=None,
+        description="Path scope of the refresh cookie (default: '<API_V1_STR>/auth')",
+    )
+    REFRESH_REUSE_GRACE_SECONDS: int = Field(
+        default=30,
+        ge=0,
+        le=300,
+        description=(
+            "A refresh token rotated less than this many seconds ago is treated as a "
+            "concurrent refresh (e.g. two tabs), not as token theft"
+        ),
+    )
+
+    # Reverse proxies whose X-Forwarded-For / X-Real-IP headers are trusted (see get_client_ip).
+    # Empty = trust none: the socket peer address is the client IP.
+    TRUSTED_PROXIES: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description="IPs or CIDR ranges of trusted reverse proxies (JSON list or comma-separated)",
+    )
+
+    # Request body limits, enforced while streaming (before anything is buffered in memory)
+    MAX_REQUEST_BODY_BYTES: int = Field(
+        default=1024 * 1024,
+        ge=16 * 1024,
+        description="Maximum body size for non-upload requests",
+    )
+    QUOTE_PREVIEW_MAX_MB: int = Field(
+        default=15, ge=1, le=50, description="Maximum quote preview image size in megabytes"
+    )
+
+    # Detailed /health diagnostics: open in development; elsewhere requires this token
+    # in the X-Health-Token header (empty = detailed diagnostics disabled outside development).
+    HEALTH_DIAGNOSTICS_TOKEN: str = Field(
+        default="", description="Token for GET /health detailed diagnostics"
+    )
 
     # Google OAuth client ID
     GOOGLE_CLIENT_ID: str = Field(
@@ -102,15 +140,30 @@ class Settings(BaseSettings):
         description="Google OAuth 2.0 Web Client ID for validating Google ID tokens",
     )
 
-    # Rate limiting thresholds (in-memory token bucket / sliding window)
+    # Rate limiting. "mongodb" shares counters across workers/instances (TTL collection);
+    # "memory" is per-process and bounded (tests, single-process development).
+    RATE_LIMIT_BACKEND: Literal["mongodb", "memory"] = Field(
+        default="mongodb",
+        description="Rate-limit counter store. Production requires 'mongodb'.",
+    )
     RATE_LIMIT_LOGIN_MAX_ATTEMPTS: int = Field(
         default=5,
-        description="Maximum failed login attempts within window per identifier/IP",
+        description="Maximum login attempts within window per client IP + identifier",
     )
     RATE_LIMIT_LOGIN_WINDOW_SECONDS: int = Field(
         default=300,
         description="Time window in seconds for login rate limiting",
     )
+    RATE_LIMIT_LOGIN_IDENTIFIER_MAX_ATTEMPTS: int = Field(
+        default=20,
+        description="Maximum login attempts per identifier from all IPs (distributed guessing)",
+    )
+    RATE_LIMIT_LOGIN_IDENTIFIER_WINDOW_SECONDS: int = Field(default=900)
+    RATE_LIMIT_LOGIN_IP_MAX_ATTEMPTS: int = Field(
+        default=30,
+        description="Maximum login attempts per client IP across identifiers (credential spraying)",
+    )
+    RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS: int = Field(default=300)
     RATE_LIMIT_REGISTER_MAX_ATTEMPTS: int = Field(
         default=5,
         description="Maximum registrations allowed per IP within window",
@@ -184,6 +237,14 @@ class Settings(BaseSettings):
         default=3600,
         description="Time window in seconds (1 hour) for per-IP OTP rate limiting",
     )
+    RATE_LIMIT_OTP_VERIFY_IP_MAX_ATTEMPTS: int = Field(default=15)
+    RATE_LIMIT_OTP_VERIFY_IP_WINDOW_SECONDS: int = Field(default=300)
+    RATE_LIMIT_OTP_VERIFY_EMAIL_MAX_ATTEMPTS: int = Field(
+        default=10, description="OTP verification attempts per email across all codes and IPs"
+    )
+    RATE_LIMIT_OTP_VERIFY_EMAIL_WINDOW_SECONDS: int = Field(default=900)
+    RATE_LIMIT_PASSWORD_RESET_IP_MAX_ATTEMPTS: int = Field(default=10)
+    RATE_LIMIT_PASSWORD_RESET_IP_WINDOW_SECONDS: int = Field(default=900)
 
     # Object storage backend: "local" (development filesystem) or "r2" (Cloudflare R2)
     STORAGE_BACKEND: Literal["local", "r2"] = Field(
@@ -329,13 +390,45 @@ class Settings(BaseSettings):
     def validate_public_app_url(cls, v: str) -> str:
         return v.rstrip("/")
 
+    @field_validator("TRUSTED_PROXIES", mode="before")
+    @classmethod
+    def assemble_trusted_proxies(cls, v: str | list[str]) -> list[str]:
+        if isinstance(v, str):
+            if v.strip().startswith("["):
+                v = json.loads(v)
+            else:
+                v = [item.strip() for item in v.split(",") if item.strip()]
+        return v
+
+    @field_validator("TRUSTED_PROXIES")
+    @classmethod
+    def validate_trusted_proxies(cls, v: list[str]) -> list[str]:
+        for entry in v:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError as exc:
+                raise ValueError(f"TRUSTED_PROXIES entry is not an IP or CIDR: {entry!r}") from exc
+        return v
+
+    @field_validator("REFRESH_COOKIE_PATH")
+    @classmethod
+    def validate_refresh_cookie_path(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            return None  # empty value in .env = use the default path
+        if v is not None and not v.startswith("/"):
+            raise ValueError("REFRESH_COOKIE_PATH must start with '/'")
+        return v
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: str | list[str]) -> list[str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",") if i.strip()]
-        if isinstance(v, (list, str)):
-            return v  # type: ignore[return-value]
+        if isinstance(v, str):
+            text = v.strip()
+            if text.startswith("["):
+                return json.loads(text)
+            return [i.strip() for i in text.split(",") if i.strip()]
+        if isinstance(v, list):
+            return v
         raise ValueError("CORS_ORIGINS must be a list or comma-separated string")
 
     @field_validator("CORS_ORIGINS")
@@ -375,6 +468,8 @@ class Settings(BaseSettings):
             )
         if self.DEBUG:
             problems.append("DEBUG must be false")
+        if self.RATE_LIMIT_BACKEND != "mongodb":
+            problems.append("RATE_LIMIT_BACKEND must be 'mongodb' (shared across workers)")
         if self.STORAGE_BACKEND != "r2":
             problems.append("STORAGE_BACKEND must be 'r2'")
         else:
@@ -433,6 +528,14 @@ class Settings(BaseSettings):
     @property
     def is_development(self) -> bool:
         return self.ENVIRONMENT in ("development", "test")
+
+    @property
+    def refresh_cookie_path(self) -> str:
+        return self.REFRESH_COOKIE_PATH or f"{self.API_V1_STR.rstrip('/')}/auth"
+
+    @property
+    def trusted_proxy_networks(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        return [ipaddress.ip_network(entry, strict=False) for entry in self.TRUSTED_PROXIES]
 
     @property
     def effective_cookie_secure(self) -> bool:

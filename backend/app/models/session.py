@@ -14,6 +14,9 @@ class RefreshTokenInDB(BaseModel):
     token_hash: str
     family_id: str
     is_revoked: bool = Field(default=False)
+    # rotated | logout | reuse_detected | password_reset | account_disabled | expired
+    revoked_reason: str | None = None
+    revoked_at: datetime | None = None
     replaced_by: PyObjectId | None = None
     user_agent: str | None = None
     ip_address: str | None = None

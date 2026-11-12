@@ -13,7 +13,9 @@ from app.api.dependencies import (
     OptionalCurrentUserDep,
     PhotoServiceDep,
 )
-from app.core.exceptions import ValidationException
+from app.core.config import get_settings
+from app.core.exceptions import PayloadTooLargeException, ValidationException
+from app.core.security import get_client_ip
 from app.schemas.common import ApiErrorResponse
 from app.schemas.photo import PhotosListResponse, PhotoUploadResponse
 
@@ -33,7 +35,7 @@ router = APIRouter(prefix="/photos", tags=["Photos"])
             "model": ApiErrorResponse,
             "description": "Missing or invalid Bearer access token",
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "model": ApiErrorResponse,
             "description": "File exceeds size limits or fails dimension validation",
         },
@@ -66,8 +68,17 @@ async def upload_photo(
             details=[{"field": "file", "issue": "Missing file payload"}],
         )
 
-    file_bytes = await file.read()
-    client_ip = request.client.host if request.client else None
+    # Size is checked before the upload is loaded into memory (the body itself is already
+    # capped by BodySizeLimitMiddleware while streaming).
+    settings = get_settings()
+    max_bytes = settings.max_upload_bytes
+    too_large = f"That photo is larger than {settings.R2_MAX_UPLOAD_MB} MB."
+    if file.size is not None and file.size > max_bytes:
+        raise PayloadTooLargeException(too_large, field="file")
+    file_bytes = await file.read(max_bytes + 1)
+    if len(file_bytes) > max_bytes:
+        raise PayloadTooLargeException(too_large, field="file")
+    client_ip = get_client_ip(request)
 
     return await photo_service.upload_photo(
         user_id=current_user.id,

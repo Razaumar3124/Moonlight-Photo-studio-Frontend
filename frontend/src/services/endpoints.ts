@@ -8,9 +8,15 @@ const id = (value: EntityId) => encodeURIComponent(String(value))
 
 export const endpoints = {
   auth: {
-    register: '/auth/register', // POST  · public
-    login: '/auth/login', // POST  · public
+    register: '/auth/register', // POST  · public · sets refresh cookie
+    login: '/auth/login', // POST  · public · sets refresh cookie
+    google: '/auth/google', // POST  · public · { id_token } · sets refresh cookie
+    refresh: '/auth/refresh', // POST  · refresh cookie → new access token (cookie rotated)
+    logout: '/auth/logout', // POST  · refresh cookie → revoked, cookie cleared
     me: '/auth/me', // GET   · bearer
+    forgotPassword: '/auth/forgot-password', // POST · { email }
+    verifyResetCode: '/auth/forgot-password/verify', // POST · { email, otp } → { reset_token }
+    resetPassword: '/auth/forgot-password/reset', // POST · { reset_token, new_password }
   },
   catalog: {
     frameMaterials: '/frame-materials', // GET · public · ?category&available_only

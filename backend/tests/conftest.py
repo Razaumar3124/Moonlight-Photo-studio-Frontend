@@ -23,6 +23,8 @@ os.environ.update(
         "GROQ_API_KEY": "",
         "GOOGLE_CLIENT_ID": "test-google-client-id.apps.googleusercontent.com",
         "STORAGE_BACKEND": "local",
+        "RATE_LIMIT_BACKEND": "memory",
+        "TRUSTED_PROXIES": "",
         "LOCAL_STORAGE_PATH": _TEST_STORAGE_ROOT,
         "R2_ACCOUNT_ID": "",
         "R2_ACCESS_KEY_ID": "",
@@ -229,7 +231,18 @@ def app(
 
 @pytest.fixture
 async def client(app) -> AsyncGenerator[AsyncClient, None]:
-    """Asynchronous HTTP test client bound to ASGI transport."""
+    """HTTP test client that behaves like the frontend (sends the CSRF header)."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://testserver",
+        headers={"X-CSRF-Protection": "1"},
+    ) as async_client:
+        yield async_client
+
+
+@pytest.fixture
+async def raw_client(app) -> AsyncGenerator[AsyncClient, None]:
+    """HTTP test client without the CSRF header (e.g. a cross-site form or script)."""
     async with AsyncClient(
         transport=ASGITransport(app=app, raise_app_exceptions=False),
         base_url="http://testserver",

@@ -107,16 +107,17 @@ class ImageProcessingService:
                 message=(
                     "We couldn’t read that image. It may be damaged or in an unsupported format."
                 ),
-                details=[{"field": "file", "issue": f"Image stream is corrupt: {exc}"}],
+                details=[{"field": "file", "issue": "Image data is corrupt or unsupported"}],
             ) from exc
 
         # 4. Re-open for transformation (after verify() the image descriptor is exhausted)
         try:
             img = Image.open(io.BytesIO(raw_bytes))
         except Exception as exc:
+            logger.warning("Pillow open failed: %s", exc)
             raise ValidationException(
                 message="We couldn’t read that image.",
-                details=[{"field": "file", "issue": str(exc)}],
+                details=[{"field": "file", "issue": "Image data is corrupt or unsupported"}],
             ) from exc
 
         # 5. Apply EXIF orientation transpose (smartphone cameras, portrait modes)

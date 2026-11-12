@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
@@ -15,10 +16,11 @@ _PASSWORD_HAS_DIGIT = re.compile(r"\d")
 
 
 class AuthTokens(BaseModel):
-    """Token pair response schema."""
+    """Access token response. The refresh token is only ever sent as an httpOnly cookie."""
 
-    access_token: str = Field(..., description="Short-lived Bearer JWT access token")
-    refresh_token: str = Field(..., description="Cryptographically secure refresh token")
+    access_token: str = Field(
+        ..., description="Short-lived Bearer JWT access token (keep it in memory only)"
+    )
     token_type: Literal["bearer"] = Field(default="bearer", description="Token type")
     expires_in: int = Field(
         ..., description="Access token expiration lifetime in seconds", examples=[1800]
@@ -36,6 +38,14 @@ class AuthResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+@dataclass(frozen=True)
+class AuthResult:
+    """Service-layer result: the JSON response plus the refresh token for the cookie."""
+
+    response: AuthResponse
+    refresh_token: str
+
+
 class RegisterRequest(BaseModel):
     """User registration payload."""
 
@@ -51,6 +61,7 @@ class RegisterRequest(BaseModel):
     )
     phone: str = Field(
         ...,
+        max_length=20,
         description="Indian mobile number (10 digits or E.164 +91...)",
         examples=["+919876543210"],
     )
@@ -104,8 +115,12 @@ class LoginRequest(BaseModel):
     """Login payload supporting email, phone, or single identifier."""
 
     email: EmailStr | None = Field(default=None, description="Registered email address")
-    phone: str | None = Field(default=None, description="Registered Indian mobile number")
-    identifier: str | None = Field(default=None, description="Combined mobile or email field")
+    phone: str | None = Field(
+        default=None, max_length=20, description="Registered Indian mobile number"
+    )
+    identifier: str | None = Field(
+        default=None, max_length=254, description="Combined mobile or email field"
+    )
     password: str = Field(..., min_length=1, max_length=128, description="Account password")
 
     model_config = ConfigDict(extra="forbid")
@@ -128,16 +143,6 @@ class LoginRequest(BaseModel):
             self.email = None
 
         return self
-
-
-class RefreshTokenRequest(BaseModel):
-    """Optional payload for token refresh (if not using httpOnly cookie)."""
-
-    refresh_token: str | None = Field(
-        default=None, description="Refresh token string if not using cookies"
-    )
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -203,7 +208,9 @@ class VerifyOtpResponse(BaseModel):
 class ResetPasswordRequest(BaseModel):
     """Payload to finalize password reset using verified reset token."""
 
-    reset_token: str = Field(..., min_length=10, description="Reset token from OTP verification")
+    reset_token: str = Field(
+        ..., min_length=10, max_length=128, description="Reset token from OTP verification"
+    )
     new_password: str = Field(
         ...,
         min_length=8,
@@ -239,7 +246,10 @@ class GoogleAuthRequest(BaseModel):
     """Payload containing Google OAuth 2.0 ID Token."""
 
     id_token: str = Field(
-        ..., min_length=10, description="Google issued OpenID Connect JWT ID token"
+        ...,
+        min_length=10,
+        max_length=4096,
+        description="Google issued OpenID Connect JWT ID token",
     )
 
     model_config = ConfigDict(extra="forbid")

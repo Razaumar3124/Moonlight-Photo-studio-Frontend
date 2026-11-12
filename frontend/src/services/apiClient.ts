@@ -129,6 +129,12 @@ export interface RequestOptions extends Omit<RequestInit, 'body' | 'method'> {
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
+/**
+ * Sent on every state-changing request. The backend requires it on the endpoints that use the
+ * refresh cookie; a cross-site page can't add custom headers without passing CORS (CSRF defence).
+ */
+export const CSRF_HEADER = 'X-CSRF-Protection'
+
 function buildUrl(path: string, query?: QueryParams): string {
   const url = `${env.apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
   if (!query) return url
@@ -162,10 +168,14 @@ export async function apiRequest<T>(
     requestHeaders.set('Content-Type', 'application/json')
   }
   if (token && !requestHeaders.has('Authorization')) requestHeaders.set('Authorization', `Bearer ${token}`)
+  if (method !== 'GET' && !requestHeaders.has(CSRF_HEADER)) requestHeaders.set(CSRF_HEADER, '1')
 
   let response: Response
   try {
     response = await fetch(buildUrl(path, query), {
+      // The refresh cookie must also reach a cross-origin API (production); CORS on the API
+      // only allows the configured frontend origins with credentials.
+      credentials: 'include',
       ...init,
       method,
       headers: requestHeaders,

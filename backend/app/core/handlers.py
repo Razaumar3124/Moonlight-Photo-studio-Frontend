@@ -17,6 +17,7 @@ def create_error_response(
     code: str,
     message: str,
     details: list[dict[str, str]] | None = None,
+    headers: dict[str, str] | None = None,
 ) -> JSONResponse:
     """Construct a uniform JSONResponse conforming to ApiErrorResponse."""
     detail_objs = [
@@ -31,17 +32,27 @@ def create_error_response(
     return JSONResponse(
         status_code=status_code,
         content=ApiErrorResponse(error=payload).model_dump(),
+        headers=headers,
     )
 
 
 async def app_exception_handler(_request: Request, exc: AppException) -> JSONResponse:
     """Handle custom application exceptions."""
-    logger.warning("Application exception: code=%s, message=%s", exc.code, exc.message)
+    if exc.internal_detail:
+        logger.warning(
+            "Application exception: code=%s, message=%s, internal=%s",
+            exc.code,
+            exc.message,
+            exc.internal_detail,
+        )
+    else:
+        logger.warning("Application exception: code=%s, message=%s", exc.code, exc.message)
     return create_error_response(
         status_code=exc.status_code,
         code=exc.code,
         message=exc.message,
         details=exc.details,
+        headers=exc.headers or None,
     )
 
 
@@ -59,7 +70,7 @@ async def validation_exception_handler(
 
     logger.info("Validation failed: %d errors", len(details))
     return create_error_response(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         code="VALIDATION_ERROR",
         message="Invalid request parameters",
         details=details,
@@ -77,6 +88,7 @@ async def http_exception_handler(
         status.HTTP_403_FORBIDDEN: "ACCESS_DENIED",
         status.HTTP_404_NOT_FOUND: "RESOURCE_NOT_FOUND",
         status.HTTP_405_METHOD_NOT_ALLOWED: "METHOD_NOT_ALLOWED",
+        status.HTTP_413_CONTENT_TOO_LARGE: "PAYLOAD_TOO_LARGE",
         status.HTTP_429_TOO_MANY_REQUESTS: "RATE_LIMIT_EXCEEDED",
         status.HTTP_500_INTERNAL_SERVER_ERROR: "INTERNAL_SERVER_ERROR",
         status.HTTP_503_SERVICE_UNAVAILABLE: "SERVICE_UNAVAILABLE",
@@ -95,7 +107,7 @@ async def http_exception_handler(
 
 async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     """Handle unexpected exceptions safely without leaking internal stack traces."""
-    logger.exception("Unhandled server exception: %s", str(exc))
+    logger.exception("Unhandled server exception: %s", type(exc).__name__)
     return create_error_response(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         code="INTERNAL_SERVER_ERROR",

@@ -27,12 +27,23 @@ class AIUsageService:
     def _today_key() -> str:
         return datetime.now(UTC).strftime("%Y-%m-%d")
 
+    def _prune(self, today: str) -> None:
+        """Drop counters from previous days so memory stays bounded to one day of callers.
+
+        Counters are per process: with several workers the effective budget is per worker.
+        """
+        for day in [d for d in self._user_daily_requests if d != today]:
+            del self._user_daily_requests[day]
+        for day in [d for d in self._global_daily_tokens if d != today]:
+            del self._global_daily_tokens[day]
+
     def can_make_request(self, user_or_ip: str) -> bool:
         """Verify whether the caller is within daily request limits and global token budgets."""
         today = self._today_key()
+        self._prune(today)
 
-        # Check global application token budget
-        if self._global_daily_tokens[today] >= self.settings.GROQ_DAILY_TOKEN_BUDGET:
+        # Check global application token budget (.get: checking must not create entries)
+        if self._global_daily_tokens.get(today, 0) >= self.settings.GROQ_DAILY_TOKEN_BUDGET:
             logger.warning(
                 "Daily global AI token budget reached (%s/%s). Disabling AI inference for today.",
                 self._global_daily_tokens[today],
@@ -41,7 +52,7 @@ class AIUsageService:
             return False
 
         # Check caller request count limit
-        current_reqs = self._user_daily_requests[today][user_or_ip]
+        current_reqs = self._user_daily_requests.get(today, {}).get(user_or_ip, 0)
         if current_reqs >= self.settings.GROQ_DAILY_REQUEST_LIMIT:
             logger.warning(
                 "Caller '%s' exceeded daily AI request limit (%s/%s).",
@@ -56,6 +67,7 @@ class AIUsageService:
     def record_usage(self, user_or_ip: str, tokens_used: int) -> None:
         """Record successful AI inference request and token consumption."""
         today = self._today_key()
+        self._prune(today)
         self._user_daily_requests[today][user_or_ip] += 1
         self._global_daily_tokens[today] += max(0, tokens_used)
         logger.info(
@@ -64,16 +76,6 @@ class AIUsageService:
             tokens_used,
             self._global_daily_tokens[today],
         )
-
-    def get_user_usage(self, user_or_ip: str) -> dict[str, int]:
-        """Return today's usage statistics for caller."""
-        today = self._today_key()
-        return {
-            "requests_today": self._user_daily_requests[today][user_or_ip],
-            "max_requests_daily": self.settings.GROQ_DAILY_REQUEST_LIMIT,
-            "tokens_consumed_global_today": self._global_daily_tokens[today],
-            "max_tokens_global_daily": self.settings.GROQ_DAILY_TOKEN_BUDGET,
-        }
 
     def clear(self) -> None:
         """Reset usage metrics (useful in unit tests)."""

@@ -4,15 +4,20 @@ import { createFakeStorage } from '@/test/fakeStorage'
 type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>
 
 async function setup(session?: { accessToken: string; expiresAt: number }) {
-  const storage = createFakeStorage(
-    session ? { 'moonlight.auth': JSON.stringify({ ...session, refreshToken: 'r' }) } : {},
-  )
-  vi.stubGlobal('localStorage', storage)
+  vi.stubGlobal('localStorage', createFakeStorage())
   const fetchMock: FetchMock = vi.fn<typeof fetch>()
   vi.stubGlobal('fetch', fetchMock)
   vi.resetModules()
   const client = await import('./apiClient')
-  return { ...client, fetchMock, storage }
+  const { tokenStorage } = await import('./tokenStorage') // same fresh instance apiClient uses
+  if (session) {
+    tokenStorage.save({
+      access_token: session.accessToken,
+      token_type: 'bearer',
+      expires_in: (session.expiresAt - Date.now()) / 1000,
+    })
+  }
+  return { ...client, fetchMock, tokenStorage }
 }
 
 const json = (status: number, body: unknown) =>
@@ -70,6 +75,18 @@ describe('apiRequest', () => {
     const { init, headers } = lastRequest(fetchMock)
     expect(init.body).toBeInstanceOf(FormData)
     expect(headers.has('Content-Type')).toBe(false)
+  })
+
+  it('sends the CSRF header on state-changing requests only, and always includes credentials', async () => {
+    const { api, fetchMock, CSRF_HEADER } = await setup()
+    fetchMock.mockImplementation(async () => json(200, {}))
+    await api.post('/auth/refresh')
+    expect(lastRequest(fetchMock).headers.get(CSRF_HEADER)).toBe('1')
+    expect(lastRequest(fetchMock).init.credentials).toBe('include')
+    await api.get('/templates')
+    expect(lastRequest(fetchMock).headers.has(CSRF_HEADER)).toBe(false)
+    await api.upload('/photos/upload', { file: new Blob(['x']) })
+    expect(lastRequest(fetchMock).headers.get(CSRF_HEADER)).toBe('1')
   })
 
   it('returns undefined for 204', async () => {
@@ -131,7 +148,7 @@ describe('apiRequest', () => {
   })
 
   it('on 401 with a session: clears tokens and calls the unauthorized handler once', async () => {
-    const { api, fetchMock, setUnauthorizedHandler, storage } = await setup({
+    const { api, fetchMock, setUnauthorizedHandler, tokenStorage } = await setup({
       accessToken: 'tok',
       expiresAt: Date.now() + 60_000,
     })
@@ -142,7 +159,7 @@ describe('apiRequest', () => {
     )
     await expect(api.get('/me')).rejects.toMatchObject({ status: 401 })
     expect(handler).toHaveBeenCalledTimes(1)
-    expect(storage.getItem('moonlight.auth')).toBeNull()
+    expect(tokenStorage.hasSession()).toBe(false)
   })
 
   it('on 401 without a session (e.g. wrong password): does not trigger the handler', async () => {

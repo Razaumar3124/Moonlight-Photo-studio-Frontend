@@ -14,8 +14,21 @@ def sanitize_sensitive_data(text: str) -> str:
     return _URI_CREDENTIAL_PATTERN.sub(r"://***:***@", text)
 
 
+# Attributes every LogRecord has; anything else on a record came from `extra=`.
+_STANDARD_RECORD_ATTRS = frozenset(vars(logging.LogRecord("", 0, "", 0, "", (), None))) | {
+    "message",
+    "asctime",
+    "taskName",
+}
+
+
 class JSONFormatter(logging.Formatter):
-    """Structured JSON log formatter for production observability."""
+    """Structured JSON log formatter for production observability.
+
+    Emits the sanitised message and only explicit ``extra=`` fields, never the raw
+    ``args``/``msg`` (which may hold credentials before masking). Values that aren't
+    JSON-serialisable are stringified, so formatting a record can never raise.
+    """
 
     def format(self, record: logging.LogRecord) -> str:
         log_data: dict[str, Any] = {
@@ -26,14 +39,13 @@ class JSONFormatter(logging.Formatter):
         }
 
         if record.exc_info:
-            log_data["exception"] = self.formatException(record.exc_info)
+            log_data["exception"] = sanitize_sensitive_data(self.formatException(record.exc_info))
 
-        # Include custom extra fields if attached
         for key, value in record.__dict__.items():
-            if key not in logging.LogRecord.__dict__ and not key.startswith("_"):
-                log_data[key] = value
+            if key not in _STANDARD_RECORD_ATTRS and not key.startswith("_"):
+                log_data[key] = sanitize_sensitive_data(value) if isinstance(value, str) else value
 
-        return json.dumps(log_data)
+        return json.dumps(log_data, default=str)
 
 
 class TextFormatter(logging.Formatter):
@@ -44,7 +56,7 @@ class TextFormatter(logging.Formatter):
         sanitized_msg = sanitize_sensitive_data(record.getMessage())
         base = f"[{timestamp}] [{record.levelname:<8}] [{record.name}] {sanitized_msg}"
         if record.exc_info:
-            base += f"\n{self.formatException(record.exc_info)}"
+            base += f"\n{sanitize_sensitive_data(self.formatException(record.exc_info))}"
         return base
 
 

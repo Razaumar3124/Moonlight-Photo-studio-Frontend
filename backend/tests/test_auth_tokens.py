@@ -112,8 +112,9 @@ async def test_refresh_token_rotation_success(
 
     data = response.json()
     assert "access_token" in data
-    assert "refresh_token" in data
-    assert data["refresh_token"] != raw_token
+    assert "refresh_token" not in data  # rotated token arrives as a cookie only
+    new_cookie = response.cookies.get("refresh_token")
+    assert new_cookie and new_cookie != raw_token
 
     # Verify old token is now marked as revoked in repository
     old_doc = await fake_session_repo.get_refresh_token_by_hash(token_hash)

@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
+    # 0.48 introduced the RFC 9110 names (HTTP_422_UNPROCESSABLE_CONTENT, HTTP_413_CONTENT_TOO_LARGE).
+    "starlette>=0.48.0",
     "uvicorn[standard]>=0.32.0",
     # pymongo 4.19 dropped the `srv` extra; dnspython (below) covers mongodb+srv URIs.
     "pymongo>=4.9.0",
@@ -71,5 +73,5 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = [
     "ignore::DeprecationWarning",
-    "ignore::starlette.exceptions.StarletteDeprecationWarning",
+    "error::starlette.exceptions.StarletteDeprecationWarning",
 ]

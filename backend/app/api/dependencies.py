@@ -1,13 +1,16 @@
 from datetime import UTC, datetime
 from typing import Annotated
+from urllib.parse import urlsplit
 
-from fastapi import Depends
+import jwt
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import (
     AccountDisabledException,
+    CsrfValidationException,
     InvalidTokenException,
     TokenExpiredException,
     TokenRevokedException,
@@ -40,6 +43,43 @@ from app.services.template_service import TemplateService
 from app.services.token_service import TokenService
 from app.services.whatsapp_service import WhatsAppService
 from app.storage import ObjectStorage, create_storage
+
+CSRF_HEADER = "X-CSRF-Protection"
+
+
+def _origin_of(url: str) -> str | None:
+    parts = urlsplit(url)
+    return f"{parts.scheme}://{parts.netloc}".lower() if parts.scheme and parts.netloc else None
+
+
+async def require_csrf_protection(
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> None:
+    """CSRF defence for endpoints that set or read the refresh-token cookie.
+
+    1. The custom ``X-CSRF-Protection: 1`` header must be present. Browsers only let a
+       cross-site page send custom headers after a CORS preflight, which only
+       CORS_ORIGINS pass.
+    2. When the browser states where the request comes from (``Origin``, else ``Referer``),
+       it must be an allowed frontend origin or the API's own origin.
+    Non-browser clients that send neither header only need (1).
+    """
+    if request.headers.get(CSRF_HEADER) != "1":
+        raise CsrfValidationException()
+
+    claimed = request.headers.get("origin")
+    if claimed is None and request.headers.get("referer"):
+        claimed = _origin_of(request.headers["referer"]) or "null"
+    if claimed is None:
+        return
+
+    allowed = {o.rstrip("/").lower() for o in settings.CORS_ORIGINS}
+    allowed.add(settings.PUBLIC_APP_URL.rstrip("/").lower())
+    allowed.add(f"{request.url.scheme}://{request.url.netloc}".lower())
+    if claimed.rstrip("/").lower() not in allowed:
+        raise CsrfValidationException()
+
 
 # Bearer token extractor
 _bearer_security = HTTPBearer(auto_error=False)
@@ -86,20 +126,17 @@ async def get_google_auth_service(
     return GoogleAuthService(user_repo=user_repo, token_service=token_service)
 
 
-async def get_current_user(
-    auth: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_security)],
-    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
-) -> UserInDB:
-    """Verify Bearer token and return active authenticated user."""
-    if not auth or not auth.credentials:
-        raise InvalidTokenException("Missing Bearer authorization header.")
+async def _authenticate_bearer(token: str, user_repo: UserRepository) -> UserInDB:
+    """Validate an access token and return its active user (raises on any failure).
 
+    Shared by the required and optional auth dependencies so both apply the same rules,
+    including revocation of tokens issued before the last password change.
+    """
     try:
-        payload = decode_access_token(auth.credentials)
-    except Exception as exc:
-        err_msg = str(exc).lower()
-        if "expired" in err_msg:
-            raise TokenExpiredException() from exc
+        payload = decode_access_token(token)
+    except jwt.ExpiredSignatureError as exc:
+        raise TokenExpiredException() from exc
+    except jwt.PyJWTError as exc:
         raise InvalidTokenException() from exc
 
     user_id = payload.get("sub")
@@ -114,7 +151,8 @@ async def get_current_user(
         raise AccountDisabledException()
 
     if user.password_changed_at:
-        token_iat = datetime.fromtimestamp(payload.get("iat", 0), tz=UTC)
+        # `iat` has sub-second precision (see create_access_token).
+        token_iat = datetime.fromtimestamp(float(payload.get("iat", 0)), tz=UTC)
         pwd_changed = (
             user.password_changed_at.replace(tzinfo=UTC)
             if user.password_changed_at.tzinfo is None
@@ -124,6 +162,16 @@ async def get_current_user(
             raise TokenRevokedException("Access token invalidated due to password change.")
 
     return user
+
+
+async def get_current_user(
+    auth: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer_security)],
+    user_repo: Annotated[UserRepository, Depends(get_user_repository)],
+) -> UserInDB:
+    """Verify Bearer token and return active authenticated user."""
+    if not auth or not auth.credentials:
+        raise InvalidTokenException("Missing Bearer authorization header.")
+    return await _authenticate_bearer(auth.credentials, user_repo)
 
 
 async def get_catalog_repository(
@@ -162,15 +210,11 @@ async def get_optional_current_user(
     if not auth or not auth.credentials:
         return None
     try:
-        payload = decode_access_token(auth.credentials)
-        user_id = payload.get("sub")
-        if user_id:
-            user = await user_repo.get_by_id(user_id)
-            if user and user.is_active:
-                return user
-    except Exception:
+        return await _authenticate_bearer(auth.credentials, user_repo)
+    except (InvalidTokenException, TokenExpiredException, TokenRevokedException):
         return None
-    return None
+    except AccountDisabledException:
+        return None
 
 
 async def get_photo_repository(
@@ -346,4 +390,5 @@ WhatsAppServiceDep = Annotated[WhatsAppService, Depends(get_whatsapp_service)]
 QuoteReportServiceDep = Annotated[QuoteReportService, Depends(get_quote_report_service)]
 QuoteServiceDep = Annotated[QuoteService, Depends(get_quote_service)]
 CurrentUserDep = Annotated[UserInDB, Depends(get_current_user)]
+CsrfProtected = Depends(require_csrf_protection)
 OptionalCurrentUserDep = Annotated[UserInDB | None, Depends(get_optional_current_user)]

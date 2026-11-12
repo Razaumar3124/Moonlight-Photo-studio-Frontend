@@ -59,17 +59,16 @@ class SessionRepository:
         await self.refresh_tokens.insert_one(doc)
         return token
 
-    async def get_refresh_token_by_hash(self, token_hash: str) -> RefreshTokenInDB | None:
-        """Find a refresh token session by its SHA-256 hash."""
-        doc = await self.refresh_tokens.find_one({"token_hash": token_hash})
-        if not doc:
-            return None
+    @staticmethod
+    def _doc_to_refresh_token(doc: dict) -> RefreshTokenInDB:
         return RefreshTokenInDB(
             _id=str(doc["_id"]),
             user_id=str(doc["user_id"]),
             token_hash=doc["token_hash"],
             family_id=doc["family_id"],
             is_revoked=doc.get("is_revoked", False),
+            revoked_reason=doc.get("revoked_reason"),
+            revoked_at=doc.get("revoked_at"),
             replaced_by=str(doc["replaced_by"]) if doc.get("replaced_by") else None,
             user_agent=doc.get("user_agent"),
             ip_address=doc.get("ip_address"),
@@ -77,33 +76,71 @@ class SessionRepository:
             created_at=doc["created_at"],
         )
 
-    async def revoke_refresh_token(self, token_id: str, replaced_by: str | None = None) -> None:
-        """Mark a specific refresh token as revoked."""
+    async def get_refresh_token_by_hash(self, token_hash: str) -> RefreshTokenInDB | None:
+        """Find a refresh token session by its SHA-256 hash."""
+        doc = await self.refresh_tokens.find_one({"token_hash": token_hash})
+        return self._doc_to_refresh_token(doc) if doc else None
+
+    async def claim_refresh_token(self, token_hash: str, now: datetime) -> RefreshTokenInDB | None:
+        """Atomically revoke an active, unexpired token for rotation and return it.
+
+        Exactly one of several concurrent callers presenting the same token wins; the others
+        get ``None`` and see the token as already rotated.
+        """
+        doc = await self.refresh_tokens.find_one_and_update(
+            {"token_hash": token_hash, "is_revoked": False, "expires_at": {"$gt": now}},
+            {"$set": {"is_revoked": True, "revoked_reason": "rotated", "revoked_at": now}},
+            return_document=ReturnDocument.BEFORE,
+        )
+        return self._doc_to_refresh_token(doc) if doc else None
+
+    async def set_replaced_by(self, token_id: str, successor_id: str) -> None:
+        """Link a rotated token to its successor (audit trail)."""
+        if ObjectId.is_valid(token_id) and ObjectId.is_valid(successor_id):
+            await self.refresh_tokens.update_one(
+                {"_id": ObjectId(token_id)}, {"$set": {"replaced_by": ObjectId(successor_id)}}
+            )
+
+    async def revoke_refresh_token(self, token_id: str, reason: str = "logout") -> None:
+        """Mark a specific refresh token as revoked (no-op if it already is)."""
         if not ObjectId.is_valid(token_id):
             return
-
-        update_fields: dict = {"is_revoked": True}
-        if replaced_by and ObjectId.is_valid(replaced_by):
-            update_fields["replaced_by"] = ObjectId(replaced_by)
-
         await self.refresh_tokens.update_one(
-            {"_id": ObjectId(token_id)},
-            {"$set": update_fields},
+            {"_id": ObjectId(token_id), "is_revoked": False},
+            {
+                "$set": {
+                    "is_revoked": True,
+                    "revoked_reason": reason,
+                    "revoked_at": datetime.now(UTC),
+                }
+            },
         )
 
-    async def revoke_family(self, family_id: str) -> None:
-        """Revoke all tokens in a family chain upon reuse detection (compromise response)."""
+    async def revoke_family(self, family_id: str, reason: str = "reuse_detected") -> None:
+        """Revoke every still-active token in a family chain (compromise response)."""
         await self.refresh_tokens.update_many(
-            {"family_id": family_id},
-            {"$set": {"is_revoked": True}},
+            {"family_id": family_id, "is_revoked": False},
+            {
+                "$set": {
+                    "is_revoked": True,
+                    "revoked_reason": reason,
+                    "revoked_at": datetime.now(UTC),
+                }
+            },
         )
 
-    async def revoke_all_user_tokens(self, user_id: str) -> None:
+    async def revoke_all_user_tokens(self, user_id: str, reason: str = "password_reset") -> None:
         """Revoke all active sessions for a user (e.g. password change)."""
         if ObjectId.is_valid(user_id):
             await self.refresh_tokens.update_many(
-                {"user_id": ObjectId(user_id)},
-                {"$set": {"is_revoked": True}},
+                {"user_id": ObjectId(user_id), "is_revoked": False},
+                {
+                    "$set": {
+                        "is_revoked": True,
+                        "revoked_reason": reason,
+                        "revoked_at": datetime.now(UTC),
+                    }
+                },
             )
 
     async def create_password_reset(self, reset: PasswordResetInDB) -> PasswordResetInDB:

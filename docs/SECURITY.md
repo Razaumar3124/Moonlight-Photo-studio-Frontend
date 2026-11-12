@@ -10,7 +10,7 @@ What the frontend already does, and what hosting and the backend must provide.
 | Content-Security-Policy | Injected as a `<meta>` tag in production builds (`vite.config.ts` → `contentSecurityPolicy`): `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: <api>; font-src 'self'; connect-src 'self' <api>; object-src 'none'; base-uri 'self'; form-action 'self'`. The API origin is added automatically when `VITE_API_BASE_URL` is absolute. |
 | Third parties           | None at runtime. Fonts are self-hosted (`@fontsource`), with no Google Fonts requests and no IP leakage to third parties.                                                                                                                                                                                                                                                                 |
 | URLs from the API       | `resolveApiUrl()` passes only http(s), protocol-relative, `blob:` and `data:image/…`. `javascript:` / `data:text/html` become harmless same-origin paths.                                                                                                                                                                                                                                 |
-| Tokens                  | Isolated in `services/tokenStorage.ts`. Stored values are shape-validated, and corrupted or tampered entries are discarded. A garbled `expires_in` counts as expired. Tokens are never logged.                                                                                                                                                                                            |
+| Tokens                  | Access token in memory only (`services/tokenStorage.ts`); the refresh token is an httpOnly cookie that JavaScript never sees. Legacy localStorage tokens are deleted on load. A garbled `expires_in` counts as expired. Tokens are never logged.                                                                                                                                         |
 | Email format            | Strict practical pattern (`identifier.ts`): no markup or quotes, no leading, trailing or double dots, valid hostname labels, alphabetic TLD, local part ≤ 64. ASCII only.                                                                                                                                                                                                                 |
 | Input                   | Client-side validation plus `maxLength` caps (identifier 254, password 128). The server must still validate everything. Client checks are for UX only.                                                                                                                                                                                                                                    |
 | Error messages          | Sign-in failures are generic ("details don't match"), never "no account with this email". 5xx bodies and exception text are never shown to the user. Route error details are logged only in development.                                                                                                                                                                                  |
@@ -39,11 +39,21 @@ Also configure an SPA fallback, so unknown paths serve `index.html` with status 
 When Google sign-in lands (Phase 5), add `https://accounts.google.com` to `script-src`,
 `frame-src` and `connect-src` in the CSP plugin.
 
-## Required from backend
+## Provided by the backend (Phase 2, 2026-11-12)
 
-Tracked in [API_ALIGNMENT.md](API_ALIGNMENT.md):
+See [backend/README.md → Security model](../backend/README.md#security-model-phase-2). Items that
+used to be requests (API_ALIGNMENT Q2, Q3, Q17, Q18) are done:
 
-- **Q3:** move the refresh token to an httpOnly, Secure, SameSite cookie. Tokens in localStorage can be read by any XSS.
-- **Q2:** refresh and logout endpoints (logout must revoke the refresh token server-side).
-- **Q17:** rate-limit `/auth/login` and `/auth/register` and return `429`. Return the same `401` for "unknown account" and "wrong password".
-- **Q18:** enforce the same input limits server-side (email ≤ 254, password ≤ 128), and never put stack traces or internals in `error.message`.
+- **Q3:** the refresh token is an httpOnly, SameSite cookie and never reaches JavaScript. The access
+  token lives in memory only (`services/tokenStorage.ts`), and tokens persisted by older builds are
+  deleted on load.
+- **Q2:** refresh (atomic rotation, concurrent-tab safe, reuse detection) and logout (server-side
+  revocation).
+- **Q17:** layered login rate limits with `Retry-After`; identical `401` and timing for unknown
+  accounts.
+- **Q18:** server-side input and body-size limits; no internals in error messages.
+- **CSRF:** `apiClient` sends `X-CSRF-Protection: 1` on every non-GET request. The cookie
+  endpoints reject requests without it, or from an `Origin` outside `CORS_ORIGINS`.
+
+When Phase 5 wires auth: on app start call `POST /auth/refresh` (cookie sent automatically) to restore
+the session; on a `401` from it, treat the user as signed out.

@@ -12,12 +12,17 @@ class AppException(Exception):
         code: str = "INTERNAL_ERROR",
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         details: list[dict[str, Any]] | None = None,
+        headers: dict[str, str] | None = None,
+        internal_detail: str | None = None,
     ):
         super().__init__(message)
         self.message = message
         self.code = code
         self.status_code = status_code
         self.details = details or []
+        self.headers = headers or {}
+        # Diagnostic text for server logs only. Never serialised into API responses.
+        self.internal_detail = internal_detail
 
 
 class DatabaseUnavailableException(AppException):
@@ -28,11 +33,13 @@ class DatabaseUnavailableException(AppException):
         message: str = "Database service is currently unreachable",
         issue: str = "MongoDB ping timed out or connection failed",
     ):
+        # `issue` may contain driver/host details: logged, never returned to clients.
         super().__init__(
             message=message,
             code="DATABASE_UNAVAILABLE",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            details=[{"field": "database", "issue": issue}],
+            details=[{"field": "database", "issue": "Database is temporarily unavailable"}],
+            internal_detail=issue,
         )
 
 
@@ -55,20 +62,8 @@ class ValidationException(AppException):
         super().__init__(
             message=message,
             code="VALIDATION_ERROR",
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             details=details or [],
-        )
-
-
-class ConflictException(AppException):
-    """Raised when an entity conflict occurs (e.g. duplicate email/phone)."""
-
-    def __init__(self, message: str, field: str, issue: str):
-        super().__init__(
-            message=message,
-            code="RESOURCE_CONFLICT",
-            status_code=status.HTTP_409_CONFLICT,
-            details=[{"field": field, "issue": issue}],
         )
 
 
@@ -162,6 +157,29 @@ class InvalidGoogleTokenException(AppException):
         )
 
 
+class CsrfValidationException(AppException):
+    """Raised when a cookie-authenticated request fails CSRF checks."""
+
+    def __init__(self, message: str = "Request blocked by CSRF protection."):
+        super().__init__(
+            message=message,
+            code="CSRF_VALIDATION_FAILED",
+            status_code=status.HTTP_403_FORBIDDEN,
+        )
+
+
+class PayloadTooLargeException(AppException):
+    """Raised when a request body or uploaded file exceeds its size limit."""
+
+    def __init__(self, message: str = "The request is too large.", field: str = "body"):
+        super().__init__(
+            message=message,
+            code="PAYLOAD_TOO_LARGE",
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            details=[{"field": field, "issue": message}],
+        )
+
+
 class GoogleAuthNotConfiguredException(AppException):
     """Raised when Google sign-in is attempted but GOOGLE_CLIENT_ID is not configured.
 
@@ -183,13 +201,18 @@ class RateLimitExceededException(AppException):
     def __init__(
         self,
         message: str = "Too many attempts. Please wait a minute and try again.",
+        retry_after_seconds: int | None = None,
     ):
         super().__init__(
             message=message,
             code="RATE_LIMIT_EXCEEDED",
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             details=[],
+            headers={"Retry-After": str(max(1, retry_after_seconds))}
+            if retry_after_seconds is not None
+            else None,
         )
+        self.retry_after_seconds = retry_after_seconds
 
 
 class ForbiddenException(AppException):
@@ -216,9 +239,11 @@ class StorageUnavailableException(AppException):
         message: str = "Storage service is currently unavailable. Please try again later.",
         issue: str = "R2 storage operation timed out or failed",
     ):
+        # `issue` may contain bucket names, keys or SDK errors: logged, never returned.
         super().__init__(
             message=message,
             code="STORAGE_UNAVAILABLE",
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            details=[{"field": "storage", "issue": issue}],
+            details=[{"field": "storage", "issue": "Storage is temporarily unavailable"}],
+            internal_detail=issue,
         )

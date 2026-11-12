@@ -11,6 +11,7 @@ from app.api.dependencies import (
     OptionalCurrentUserDep,
     RedesignServiceDep,
 )
+from app.core.security import get_client_ip
 from app.schemas.geometry import (
     GenerateLayoutRequest,
     GenerateLayoutResponse,
@@ -60,7 +61,7 @@ async def generate_layout(
     current_user: OptionalCurrentUserDep,
 ) -> GenerateLayoutResponse:
     """EP-GEO-02: Generate optimal gallery wall arrangement."""
-    client_ip = http_request.client.host if http_request.client else "anonymous"
+    client_ip = get_client_ip(http_request) or "anonymous"
     caller_id = str(current_user.id) if current_user else client_ip
     user_id = str(current_user.id) if current_user else None
 
@@ -111,7 +112,7 @@ async def redesign_layout(
     current_user: OptionalCurrentUserDep,
 ) -> RedesignLayoutResponse:
     """Redesign layout with new compositional archetype."""
-    client_ip = http_request.client.host if http_request.client else "anonymous"
+    client_ip = get_client_ip(http_request) or "anonymous"
     caller_id = str(current_user.id) if current_user else client_ip
     user_id = str(current_user.id) if current_user else None
 

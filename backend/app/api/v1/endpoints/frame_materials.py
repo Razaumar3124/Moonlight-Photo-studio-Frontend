@@ -12,7 +12,7 @@ router = APIRouter(prefix="/frame-materials", tags=["Catalog"])
     response_model=FrameMaterialsListResponse,
     status_code=status.HTTP_200_OK,
     responses={
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "model": ApiErrorResponse,
             "description": "Validation failed on query parameters",
         },

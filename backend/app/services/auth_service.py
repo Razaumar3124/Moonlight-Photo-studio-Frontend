@@ -2,6 +2,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from bson import ObjectId
+from fastapi import BackgroundTasks
 
 from app.core.config import get_settings
 from app.core.exceptions import (
@@ -18,6 +19,7 @@ from app.core.security import (
     hash_otp,
     hash_password,
     hash_token,
+    verify_dummy_password,
     verify_otp_hash,
     verify_password,
 )
@@ -27,6 +29,7 @@ from app.repositories.session_repository import SessionRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import (
     AuthResponse,
+    AuthResult,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     LoginRequest,
@@ -65,16 +68,16 @@ class AuthService:
         req: RegisterRequest,
         user_agent: str | None = None,
         ip_address: str | None = None,
-    ) -> AuthResponse:
+    ) -> AuthResult:
         """Register a new customer account with Argon2id password hashing."""
         settings = get_settings()
 
-        # Rate limiting by IP address
-        rate_key = f"reg:{ip_address or 'unknown'}"
-        rate_limiter.check_rate_limit(
-            key=rate_key,
-            max_attempts=settings.RATE_LIMIT_REGISTER_MAX_ATTEMPTS,
-            window_seconds=settings.RATE_LIMIT_REGISTER_WINDOW_SECONDS,
+        # Rate limiting by (spoof-resistant) client IP
+        await rate_limiter.hit(
+            "register:ip",
+            ip_address or "unknown",
+            settings.RATE_LIMIT_REGISTER_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_REGISTER_WINDOW_SECONDS,
         )
 
         # Check existing email
@@ -110,7 +113,7 @@ class AuthService:
         created_user = await self.user_repo.create(user_doc)
 
         # Issue access & refresh tokens
-        tokens = await self.token_service.create_session(
+        issued = await self.token_service.create_session(
             user_id=created_user.id,
             role=created_user.role,
             user_agent=user_agent,
@@ -128,24 +131,44 @@ class AuthService:
         )
 
         logger.info("New user registered successfully: id=%s", created_user.id)
-        return AuthResponse(user=user_out, tokens=tokens)
+        return AuthResult(AuthResponse(user=user_out, tokens=issued.public), issued.refresh_token)
 
     async def authenticate_user(
         self,
         req: LoginRequest,
         user_agent: str | None = None,
         ip_address: str | None = None,
-    ) -> AuthResponse:
+    ) -> AuthResult:
         """Authenticate user by email or Indian phone and issue credentials."""
         settings = get_settings()
 
-        # Identifier rate limiting to prevent brute-force attacks
-        rate_identifier = req.email or req.phone or ip_address or "unknown"
-        rate_key = f"login:{rate_identifier}"
-        rate_limiter.check_rate_limit(
-            key=rate_key,
-            max_attempts=settings.RATE_LIMIT_LOGIN_MAX_ATTEMPTS,
-            window_seconds=settings.RATE_LIMIT_LOGIN_WINDOW_SECONDS,
+        # Brute-force protection, three counters:
+        # - IP + identifier: the normal lockout for one attacker on one account
+        # - identifier:      distributed guessing against one account from many IPs
+        # - IP:              credential spraying across many accounts from one IP
+        client = ip_address or "unknown"
+        identifier = req.email or req.phone or ""
+        pair = f"{client}|{identifier}"
+        await rate_limiter.hit(
+            "login:ip",
+            client,
+            settings.RATE_LIMIT_LOGIN_IP_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_LOGIN_IP_WINDOW_SECONDS,
+            "Too many sign-in attempts. Please wait a few minutes and try again.",
+        )
+        await rate_limiter.hit(
+            "login:identifier",
+            identifier,
+            settings.RATE_LIMIT_LOGIN_IDENTIFIER_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_LOGIN_IDENTIFIER_WINDOW_SECONDS,
+            "Too many sign-in attempts. Please wait a few minutes and try again.",
+        )
+        await rate_limiter.hit(
+            "login:ip_identifier",
+            pair,
+            settings.RATE_LIMIT_LOGIN_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_LOGIN_WINDOW_SECONDS,
+            "Too many sign-in attempts. Please wait a few minutes and try again.",
         )
 
         # Retrieve user record by normalized email or phone
@@ -155,11 +178,10 @@ class AuthService:
         elif req.phone:
             user = await self.user_repo.get_by_phone(req.phone)
 
-        # Constant-time security check: if user doesn't exist,
-        # run dummy verify to prevent timing attacks
+        # Unknown account (or a Google-only account without a password): spend the same
+        # Argon2id work as a real check so timing does not reveal which accounts exist.
         if not user or not user.password_hash:
-            # Perform dummy Argon2id check to normalize timing
-            verify_password("dummy_password", "$argon2id$v=19$m=65536,t=3,p=4$dummy$dummy")
+            verify_dummy_password(req.password)
             raise InvalidCredentialsException()
 
         # Verify password hash
@@ -170,14 +192,16 @@ class AuthService:
         if not user.is_active:
             raise AccountDisabledException()
 
-        # Clear rate limiter on successful authentication
-        rate_limiter.reset(rate_key)
+        # A correct password clears this account's counters. The per-IP counter is kept,
+        # so an attacker cannot reset it by signing in to an account of their own.
+        await rate_limiter.reset("login:ip_identifier", pair)
+        await rate_limiter.reset("login:identifier", identifier)
 
         # Update last login timestamp
         await self.user_repo.update_last_login(user.id)
 
         # Issue access & refresh tokens
-        tokens = await self.token_service.create_session(
+        issued = await self.token_service.create_session(
             user_id=user.id,
             role=user.role,
             user_agent=user_agent,
@@ -195,27 +219,41 @@ class AuthService:
         )
 
         logger.info("User authenticated successfully: id=%s", user.id)
-        return AuthResponse(user=user_out, tokens=tokens)
+        return AuthResult(AuthResponse(user=user_out, tokens=issued.public), issued.refresh_token)
+
+    async def _deliver_otp_email(self, to_email: str, otp_code: str, expiry_minutes: int) -> None:
+        """Send the OTP email; failures are logged, never surfaced to the requester."""
+        try:
+            await self.email_service.send_otp_email(
+                to_email=to_email, otp_code=otp_code, expiry_minutes=expiry_minutes
+            )
+        except Exception as exc:  # noqa: BLE001 - delivery problems must not leak to clients
+            logger.error("Password reset email delivery failed: %s", type(exc).__name__)
 
     async def request_password_reset_otp(
         self,
         req: ForgotPasswordRequest,
         ip_address: str | None = None,
+        background_tasks: BackgroundTasks | None = None,
     ) -> ForgotPasswordResponse:
-        """Step 1: Request Email OTP for password recovery with rate limits and 60s cooldown."""
+        """Step 1: Request Email OTP for password recovery with rate limits and 60s cooldown.
+
+        The response is identical whether or not the account exists. The email is sent after
+        the response (``background_tasks``) so neither its latency nor a delivery failure can
+        reveal that an account exists.
+        """
         settings = get_settings()
 
         # 1. Enforce sliding window rate limits (IP and Email)
-        rate_key_ip = f"forgot_pwd_ip:{ip_address or 'unknown'}"
-        rate_limiter.check_rate_limit(
-            rate_key_ip,
+        await rate_limiter.hit(
+            "forgot_password:ip",
+            ip_address or "unknown",
             settings.RATE_LIMIT_FORGOT_PASSWORD_IP_MAX_ATTEMPTS,
             settings.RATE_LIMIT_FORGOT_PASSWORD_IP_WINDOW_SECONDS,
         )
-
-        rate_key_email = f"forgot_pwd_email:{req.email}"
-        rate_limiter.check_rate_limit(
-            rate_key_email,
+        await rate_limiter.hit(
+            "forgot_password:email",
+            req.email,
             settings.RATE_LIMIT_FORGOT_PASSWORD_MAX_ATTEMPTS,
             settings.RATE_LIMIT_FORGOT_PASSWORD_WINDOW_SECONDS,
         )
@@ -255,13 +293,15 @@ class AuthService:
             )
             await self.session_repo.create_password_reset(otp_doc)
 
-            # Dispatch branded email via EmailService
-            await self.email_service.send_otp_email(
-                to_email=req.email,
-                otp_code=otp_code,
-                expiry_minutes=settings.EMAIL_OTP_EXPIRE_MINUTES,
-            )
-            logger.info("Password reset OTP generated and dispatched for user_id=%s", user.id)
+            if background_tasks is not None:
+                background_tasks.add_task(
+                    self._deliver_otp_email, req.email, otp_code, settings.EMAIL_OTP_EXPIRE_MINUTES
+                )
+            else:
+                await self._deliver_otp_email(
+                    req.email, otp_code, settings.EMAIL_OTP_EXPIRE_MINUTES
+                )
+            logger.info("Password reset OTP generated for user_id=%s", user.id)
 
         # Return non-enumerating generic response regardless of whether account exists
         return ForgotPasswordResponse(
@@ -275,9 +315,22 @@ class AuthService:
         ip_address: str | None = None,
     ) -> VerifyOtpResponse:
         """Step 2: Verify 6-digit OTP in constant time and issue reset authorization token."""
-        # Rate limit verification attempts to mitigate brute-force
-        rate_key = f"verify_otp_ip:{ip_address or 'unknown'}"
-        rate_limiter.check_rate_limit(rate_key, max_attempts=15, window_seconds=300)
+        # Brute-force limits on top of the per-code attempt cap: per client IP, and per
+        # email across all codes and IPs (rotating IPs or requesting new codes must not buy
+        # unlimited guesses).
+        settings = get_settings()
+        await rate_limiter.hit(
+            "otp_verify:ip",
+            ip_address or "unknown",
+            settings.RATE_LIMIT_OTP_VERIFY_IP_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_OTP_VERIFY_IP_WINDOW_SECONDS,
+        )
+        await rate_limiter.hit(
+            "otp_verify:email",
+            req.email,
+            settings.RATE_LIMIT_OTP_VERIFY_EMAIL_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_OTP_VERIFY_EMAIL_WINDOW_SECONDS,
+        )
 
         active_otp = await self.session_repo.get_active_otp(req.email)
         if not active_otp:
@@ -346,8 +399,16 @@ class AuthService:
     async def reset_password_with_token(
         self,
         req: ResetPasswordRequest,
+        ip_address: str | None = None,
     ) -> ResetPasswordResponse:
         """Step 3: Atomically consume reset session token and update user credentials."""
+        settings = get_settings()
+        await rate_limiter.hit(
+            "password_reset:ip",
+            ip_address or "unknown",
+            settings.RATE_LIMIT_PASSWORD_RESET_IP_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_PASSWORD_RESET_IP_WINDOW_SECONDS,
+        )
         token_hash = hash_token(req.reset_token)
 
         # Atomically validate, check expiry, and consume the reset session token

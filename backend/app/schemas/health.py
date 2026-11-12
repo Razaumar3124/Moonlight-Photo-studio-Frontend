@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthLiveResponse(BaseModel):
-    """Response schema for GET /api/v1/health/live."""
+    """Response schema for GET /api/v1/health/live (public, minimal)."""
 
     status: str = Field(default="ok", description="Liveness status indicator", examples=["ok"])
     service: str = Field(
@@ -13,23 +13,10 @@ class HealthLiveResponse(BaseModel):
         description="Service identifier",
         examples=["moonlight-studio-api"],
     )
-    version: str = Field(default="0.1.0", description="API application version", examples=["0.1.0"])
-    uptime_seconds: float = Field(
-        ...,
-        description="Application uptime in seconds",
-        examples=[124.5],
-    )
 
     model_config = ConfigDict(
         extra="forbid",
-        json_schema_extra={
-            "example": {
-                "status": "ok",
-                "service": "moonlight-studio-api",
-                "version": "0.1.0",
-                "uptime_seconds": 3600.0,
-            }
-        },
+        json_schema_extra={"example": {"status": "ok", "service": "moonlight-studio-api"}},
     )
 
 
@@ -138,7 +125,7 @@ class HealthComponentsStatus(BaseModel):
 
 
 class HealthReadyResponse(BaseModel):
-    """Response schema for GET /api/v1/health/ready."""
+    """Response schema for GET /api/v1/health/ready (public, minimal: MongoDB only)."""
 
     status: str = Field(
         default="ready",
@@ -152,27 +139,7 @@ class HealthReadyResponse(BaseModel):
     )
     database: DatabaseHealthStatus = Field(
         ...,
-        description="Database connectivity details",
-    )
-    storage: StorageHealthStatus | None = Field(
-        default=None,
-        description="Object storage status",
-    )
-    email: EmailHealthStatus | None = Field(
-        default=None,
-        description="Email service status",
-    )
-    whatsapp: WhatsAppHealthStatus | None = Field(
-        default=None,
-        description="WhatsApp quote integration status",
-    )
-    groq_ai: GroqHealthStatus | None = Field(
-        default=None,
-        description="Groq AI curator inference status",
-    )
-    google_oauth: GoogleAuthHealthStatus | None = Field(
-        default=None,
-        description="Google OAuth token verification status",
+        description="Database connectivity",
     )
     timestamp: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),
@@ -185,11 +152,7 @@ class HealthReadyResponse(BaseModel):
             "example": {
                 "status": "ready",
                 "service": "moonlight-studio-api",
-                "database": {
-                    "connected": True,
-                    "status": "connected",
-                    "latency_ms": 1.2,
-                },
+                "database": {"connected": True, "status": "connected"},
                 "timestamp": "2026-11-07T12:00:00.000Z",
             }
         },

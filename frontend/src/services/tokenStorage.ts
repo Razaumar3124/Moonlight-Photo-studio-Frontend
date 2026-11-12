@@ -1,99 +1,57 @@
 import type { AuthTokens } from '@/types/api'
 
 /**
- * Persists the JWTs returned by /auth/register and /auth/login.
+ * Holds the access token returned by /auth/register, /auth/login, /auth/google and
+ * /auth/refresh: **in memory only**, never in localStorage, so an XSS bug can't lift it from
+ * storage.
  *
- * The contract returns tokens in the response body (no httpOnly cookie), so they have to live
- * in JS-readable storage. We use localStorage so a page reload doesn't sign the user out (there is
- * no refresh endpoint yet, see API_ALIGNMENT.md Q2/Q3). The tradeoff: tokens are exposed to XSS.
- * Everything goes through this module, so moving to cookies later is a change in one file.
+ * The refresh token never reaches JavaScript: the backend keeps it in an httpOnly, SameSite
+ * cookie (scoped to `/api/v1/auth`) and rotates it on POST /auth/refresh. After a reload the
+ * auth layer restores the session by calling /auth/refresh (the cookie is sent automatically),
+ * so nothing needs to survive here.
  */
 
-const STORAGE_KEY = 'moonlight.auth'
+/** Key used by earlier builds that persisted tokens in localStorage. Removed on load. */
+const LEGACY_STORAGE_KEY = 'moonlight.auth'
 
-interface StoredSession {
+interface MemorySession {
   accessToken: string
-  refreshToken: string
   /** Epoch ms when the access token expires. */
   expiresAt: number
 }
 
-let cache: StoredSession | null | undefined
+let session: MemorySession | null = null
 
-/** localStorage is user-editable: never trust its shape. */
-function isStoredSession(value: unknown): value is StoredSession {
-  if (typeof value !== 'object' || value === null) return false
-  const v = value as Record<string, unknown>
-  return (
-    typeof v.accessToken === 'string' &&
-    v.accessToken.length > 0 &&
-    typeof v.refreshToken === 'string' &&
-    typeof v.expiresAt === 'number' &&
-    Number.isFinite(v.expiresAt)
-  )
-}
-
-function read(): StoredSession | null {
-  if (cache !== undefined) return cache
-  let raw: string | null = null
-  try {
-    raw = localStorage.getItem(STORAGE_KEY)
-    const parsed: unknown = raw ? JSON.parse(raw) : null
-    cache = isStoredSession(parsed) ? parsed : null
-  } catch {
-    cache = null
-  }
-  // Drop corrupted or tampered entries (bad JSON or wrong shape) so they can't linger.
-  if (raw && !cache) {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // Storage unavailable: nothing to clean up.
-    }
-  }
-  return cache
+try {
+  localStorage.removeItem(LEGACY_STORAGE_KEY)
+} catch {
+  // Storage unavailable (private mode, non-browser): nothing to clean up.
 }
 
 export const tokenStorage = {
   save(tokens: AuthTokens) {
+    if (typeof tokens.access_token !== 'string' || !tokens.access_token) {
+      session = null
+      return
+    }
     // A missing/garbled expires_in must not produce NaN (NaN comparisons would never expire).
     const lifetimeSeconds =
       Number.isFinite(tokens.expires_in) && tokens.expires_in > 0 ? tokens.expires_in : 0
-    cache = {
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
-      expiresAt: Date.now() + lifetimeSeconds * 1000,
-    }
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cache))
-    } catch {
-      // Storage blocked (private mode etc.) — session stays in memory for this tab.
-    }
+    session = { accessToken: tokens.access_token, expiresAt: Date.now() + lifetimeSeconds * 1000 }
   },
 
   /** Returns the access token, or null if missing/expired. */
   getAccessToken(): string | null {
-    const session = read()
-    if (!session) return null
-    if (Date.now() >= session.expiresAt) return null
+    if (!session || Date.now() >= session.expiresAt) return null
     return session.accessToken
   },
 
-  /** True if the user signed in at some point, even if the access token has since expired. */
+  /** True if the user signed in during this page's lifetime, even if the token has since expired. */
   hasSession(): boolean {
-    return read() !== null
-  },
-
-  getRefreshToken(): string | null {
-    return read()?.refreshToken ?? null
+    return session !== null
   },
 
   clear() {
-    cache = null
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      // ignore
-    }
+    session = null
   },
 }

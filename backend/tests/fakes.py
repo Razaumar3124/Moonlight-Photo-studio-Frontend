@@ -99,22 +99,44 @@ class FakeSessionRepository:
             return None
         return RefreshTokenInDB(**doc)
 
-    async def revoke_refresh_token(self, token_id: str, replaced_by: str | None = None) -> None:
+    @staticmethod
+    def _aware(value: datetime) -> datetime:
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+    def _revoke(self, doc: dict, reason: str) -> None:
+        if not doc.get("is_revoked"):
+            doc["is_revoked"] = True
+            doc["revoked_reason"] = reason
+            doc["revoked_at"] = datetime.now(UTC)
+
+    async def claim_refresh_token(self, token_hash: str, now: datetime) -> RefreshTokenInDB | None:
+        # No await between check and set: atomic on the event loop, like find_one_and_update.
+        doc = self.refresh_tokens.get(token_hash)
+        if not doc or doc.get("is_revoked") or self._aware(doc["expires_at"]) <= now:
+            return None
+        before = RefreshTokenInDB(**doc)
+        doc.update(is_revoked=True, revoked_reason="rotated", revoked_at=now)
+        return before
+
+    async def set_replaced_by(self, token_id: str, successor_id: str) -> None:
         for doc in self.refresh_tokens.values():
             if str(doc["_id"]) == str(token_id):
-                doc["is_revoked"] = True
-                if replaced_by:
-                    doc["replaced_by"] = str(replaced_by)
+                doc["replaced_by"] = str(successor_id)
 
-    async def revoke_family(self, family_id: str) -> None:
+    async def revoke_refresh_token(self, token_id: str, reason: str = "logout") -> None:
+        for doc in self.refresh_tokens.values():
+            if str(doc["_id"]) == str(token_id):
+                self._revoke(doc, reason)
+
+    async def revoke_family(self, family_id: str, reason: str = "reuse_detected") -> None:
         for doc in self.refresh_tokens.values():
             if doc.get("family_id") == family_id:
-                doc["is_revoked"] = True
+                self._revoke(doc, reason)
 
-    async def revoke_all_user_tokens(self, user_id: str) -> None:
+    async def revoke_all_user_tokens(self, user_id: str, reason: str = "password_reset") -> None:
         for doc in self.refresh_tokens.values():
             if str(doc.get("user_id")) == str(user_id):
-                doc["is_revoked"] = True
+                self._revoke(doc, reason)
 
     async def create_password_reset(self, reset: PasswordResetInDB) -> PasswordResetInDB:
         doc = reset.model_dump(by_alias=True)

@@ -18,9 +18,12 @@ export interface User {
 /** Login (§2.2) returns a reduced user without `phone` / `created_at` (mismatch M5). */
 export type LoginUser = Omit<User, 'phone' | 'created_at'> & Partial<Pick<User, 'phone' | 'created_at'>>
 
+/**
+ * Access token only. The refresh token is an httpOnly cookie the browser sends to
+ * `/api/v1/auth/*` automatically; it never appears in a response body (API_ALIGNMENT Q2/Q3).
+ */
 export interface AuthTokens {
   access_token: string
-  refresh_token: string
   token_type: 'bearer'
   /** Access-token lifetime in seconds. */
   expires_in: number

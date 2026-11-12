@@ -58,8 +58,13 @@ async def test_login_with_email_success(client: AsyncClient):
     assert data["user"]["full_name"] == "Aarav Sharma"
     assert data["tokens"]["token_type"] == "bearer"
     assert "access_token" in data["tokens"]
-    assert "refresh_token" in data["tokens"]
+    # The refresh token is only ever an httpOnly cookie, never in the JSON body.
+    assert "refresh_token" not in data["tokens"]
     assert "refresh_token" in response.cookies
+    set_cookie = response.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie and "path=/api/v1/auth" in set_cookie
+    assert "samesite=lax" in set_cookie
+    assert response.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.asyncio

@@ -13,7 +13,7 @@ from app.core.exceptions import (
 )
 from app.models.user import UserInDB
 from app.repositories.user_repository import UserRepository
-from app.schemas.auth import AuthResponse
+from app.schemas.auth import AuthResponse, AuthResult
 from app.schemas.user import UserOut
 from app.services.token_service import TokenService
 
@@ -32,7 +32,7 @@ class GoogleAuthService:
         id_token_str: str,
         user_agent: str | None = None,
         ip_address: str | None = None,
-    ) -> AuthResponse:
+    ) -> AuthResult:
         """Verify Google ID token and sign in / register user."""
         settings = get_settings()
 
@@ -114,7 +114,7 @@ class GoogleAuthService:
         await self.user_repo.update_last_login(user.id)
 
         # Create session and return AuthResponse
-        tokens = await self.token_service.create_session(
+        issued = await self.token_service.create_session(
             user_id=user.id,
             role=user.role,
             user_agent=user_agent,
@@ -131,4 +131,4 @@ class GoogleAuthService:
             created_at=user.created_at.isoformat(),
         )
 
-        return AuthResponse(user=user_out, tokens=tokens)
+        return AuthResult(AuthResponse(user=user_out, tokens=issued.public), issued.refresh_token)

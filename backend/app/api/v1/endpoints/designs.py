@@ -23,7 +23,7 @@ router = APIRouter(prefix="/designs", tags=["Designs & Versions Management"])
     status_code=status.HTTP_201_CREATED,
     responses={
         status.HTTP_401_UNAUTHORIZED: {"model": ApiErrorResponse, "description": "Unauthenticated"},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "model": ApiErrorResponse,
             "description": "Validation error",
         },
@@ -119,7 +119,7 @@ async def get_design(
             "description": "Access denied (IDOR protection)",
         },
         status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse, "description": "Design not found"},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "model": ApiErrorResponse,
             "description": "Validation error",
         },
@@ -173,7 +173,7 @@ async def delete_design(
             "description": "Access denied or unowned photo reference",
         },
         status.HTTP_404_NOT_FOUND: {"model": ApiErrorResponse, "description": "Design not found"},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "model": ApiErrorResponse,
             "description": "Validation error or geometry violation",
         },

@@ -27,7 +27,8 @@ async def test_google_auth_new_user_success(
         assert data["user"]["email"] == "google.user@example.com"
         assert data["user"]["full_name"] == "Google Test User"
         assert "access_token" in data["tokens"]
-        assert "refresh_token" in data["tokens"]
+        assert "refresh_token" not in data["tokens"]
+        assert "refresh_token" in response.cookies
 
         # Verify user was saved with google_id
         db_user = await fake_user_repo.get_by_email("google.user@example.com")

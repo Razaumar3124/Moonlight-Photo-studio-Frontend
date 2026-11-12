@@ -17,6 +17,7 @@ def _production(**overrides) -> Settings:
     values = {
         "ENVIRONMENT": "production",
         "DEBUG": False,
+        "RATE_LIMIT_BACKEND": "mongodb",
         "CORS_ORIGINS": ["https://moonlight.example.com"],
         "SECRET_KEY": "s" * 48,
         "OTP_SECRET_KEY": "o" * 48,
@@ -182,3 +183,37 @@ def test_production_requirement_violations(overrides, expected):
     with pytest.raises(ValidationError) as exc_info:
         _production(**overrides)
     assert expected in str(exc_info.value)
+
+
+def test_list_settings_accept_comma_separated_env(clean_env, monkeypatch: pytest.MonkeyPatch):
+    """Comma-separated env values used to crash pydantic-settings' JSON decoding."""
+    monkeypatch.setenv("CORS_ORIGINS", "https://a.example, https://b.example")
+    monkeypatch.setenv("TRUSTED_PROXIES", "10.0.0.0/8,::1")
+    settings = Settings()
+    assert settings.CORS_ORIGINS == ["https://a.example", "https://b.example"]
+    assert settings.TRUSTED_PROXIES == ["10.0.0.0/8", "::1"]
+
+
+def test_list_settings_still_accept_json_env(clean_env, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CORS_ORIGINS", '["https://a.example"]')
+    assert Settings().CORS_ORIGINS == ["https://a.example"]
+
+
+def test_invalid_trusted_proxy_rejected(clean_env):
+    with pytest.raises(ValidationError) as exc_info:
+        Settings(TRUSTED_PROXIES=["10.0.0.0/8", "not-a-network"])
+    assert "TRUSTED_PROXIES entry is not an IP or CIDR" in str(exc_info.value)
+
+
+def test_refresh_cookie_path_defaults_and_validates(clean_env, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("REFRESH_COOKIE_PATH", "")  # as written by .env.example
+    assert Settings().refresh_cookie_path == "/api/v1/auth"
+    assert Settings(REFRESH_COOKIE_PATH="/v2/auth").refresh_cookie_path == "/v2/auth"
+    with pytest.raises(ValidationError):
+        Settings(REFRESH_COOKIE_PATH="auth")
+
+
+def test_production_requires_shared_rate_limit_store():
+    with pytest.raises(ValidationError) as exc_info:
+        _production(RATE_LIMIT_BACKEND="memory")
+    assert "RATE_LIMIT_BACKEND must be 'mongodb'" in str(exc_info.value)

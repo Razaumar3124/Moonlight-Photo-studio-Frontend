@@ -1,12 +1,15 @@
 import asyncio
+import hmac
 import time
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Depends, Request, Response, status
 
 from app.api.dependencies import GroqClientDep, SettingsDep, StorageDep
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
+from app.core.exceptions import ResourceNotFoundException
+from app.core.logging import sanitize_sensitive_data
 from app.db.mongodb import mongo_manager
 from app.integrations.groq_client import GroqClient
 from app.schemas.common import ApiErrorResponse
@@ -28,6 +31,29 @@ from app.storage import ObjectStorage
 
 router = APIRouter(prefix="/health", tags=["Health & Operations"])
 
+HEALTH_TOKEN_HEADER = "X-Health-Token"
+
+
+def _issue(exc: object) -> str:
+    """Diagnostic text for the guarded /health endpoint: credentials masked, length capped."""
+    return sanitize_sensitive_data(str(exc))[:200] or type(exc).__name__
+
+
+async def require_health_diagnostics(request: Request, settings=Depends(get_settings)) -> None:
+    """Detailed diagnostics reveal configuration and dependency state.
+
+    Open in development and test; elsewhere only with a matching X-Health-Token header.
+    Otherwise the endpoint answers 404, as if it didn't exist.
+    """
+    if settings.ENVIRONMENT in ("development", "test"):
+        return
+    expected = settings.HEALTH_DIAGNOSTICS_TOKEN.strip()
+    supplied = request.headers.get(HEALTH_TOKEN_HEADER, "")
+    if expected and len(expected) >= 16 and hmac.compare_digest(supplied, expected):
+        return
+    raise ResourceNotFoundException(message="Not found", field="path")
+
+
 # Module-level start time for uptime calculation
 _APP_START_TIME = time.time()
 
@@ -47,7 +73,7 @@ async def _check_r2_storage(storage: ObjectStorage, settings: Settings) -> Stora
             connected=False,
             status="unreachable",
             bucket=storage.bucket_name,
-            issue=str(exc),
+            issue=_issue(exc),
         )
 
 
@@ -61,7 +87,7 @@ async def _check_email_service(settings: Settings) -> EmailHealthStatus:
             status="unreachable",
             provider=settings.EMAIL_PROVIDER,
             from_email=settings.RESEND_FROM_EMAIL,
-            issue=str(exc),
+            issue=_issue(exc),
         )
 
 
@@ -82,7 +108,7 @@ async def _check_groq_client(groq_client: GroqClient, settings: Settings) -> Gro
             status="unreachable",
             enabled=settings.GROQ_ENABLED,
             model=settings.GROQ_MODEL,
-            issue=str(exc),
+            issue=_issue(exc),
         )
 
 
@@ -117,7 +143,7 @@ async def _check_google_oauth(settings: Settings) -> GoogleAuthHealthStatus:
             status="degraded",
             client_id_configured=configured,
             certs_reachable=False,
-            issue=str(exc),
+            issue=_issue(exc),
         )
 
 
@@ -125,6 +151,7 @@ async def _check_google_oauth(settings: Settings) -> GoogleAuthHealthStatus:
     "",
     response_model=HealthSystemResponse,
     status_code=status.HTTP_200_OK,
+    dependencies=[Depends(require_health_diagnostics)],
     responses={
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "model": HealthSystemResponse,
@@ -150,8 +177,8 @@ async def health_system(
         try:
             latency = await mongo_manager.ping()
             return DatabaseHealthStatus(connected=True, status="connected", latency_ms=latency)
-        except Exception as exc:
-            return DatabaseHealthStatus(connected=False, status=f"disconnected: {exc}")
+        except Exception:
+            return DatabaseHealthStatus(connected=False, status="disconnected", latency_ms=None)
 
     db_res, r2_res, email_res, groq_res, google_res = await asyncio.gather(
         _safe_db_ping(),
@@ -165,7 +192,7 @@ async def health_system(
     db_status = (
         db_res
         if isinstance(db_res, DatabaseHealthStatus)
-        else DatabaseHealthStatus(connected=False, status=str(db_res))
+        else DatabaseHealthStatus(connected=False, status="disconnected")
     )
     r2_status = (
         r2_res
@@ -174,7 +201,7 @@ async def health_system(
             connected=False,
             status="error",
             bucket=storage.bucket_name,
-            issue=str(r2_res),
+            issue=_issue(r2_res),
         )
     )
     email_status = (
@@ -183,7 +210,7 @@ async def health_system(
         else EmailHealthStatus(
             status="error",
             provider=settings.EMAIL_PROVIDER,
-            issue=str(email_res),
+            issue=_issue(email_res),
         )
     )
     groq_status = (
@@ -193,7 +220,7 @@ async def health_system(
             status="error",
             enabled=settings.GROQ_ENABLED,
             model=settings.GROQ_MODEL,
-            issue=str(groq_res),
+            issue=_issue(groq_res),
         )
     )
     google_status = (
@@ -203,7 +230,7 @@ async def health_system(
             status="error",
             client_id_configured=False,
             certs_reachable=False,
-            issue=str(google_res),
+            issue=_issue(google_res),
         )
     )
     whatsapp_status = _check_whatsapp_service()
@@ -250,17 +277,9 @@ async def health_system(
     summary="Liveness check",
     description="Confirms that the FastAPI service is running and accepting HTTP requests.",
 )
-async def health_live(
-    settings: SettingsDep,
-) -> HealthLiveResponse:
-    """Liveness probe. Does not depend on external services."""
-    uptime = round(time.time() - _APP_START_TIME, 2)
-    return HealthLiveResponse(
-        status="ok",
-        service="moonlight-studio-api",
-        version=settings.VERSION,
-        uptime_seconds=uptime,
-    )
+async def health_live() -> HealthLiveResponse:
+    """Liveness probe. Public and minimal; does not depend on any other service."""
+    return HealthLiveResponse(status="ok", service="moonlight-studio-api")
 
 
 @router.get(
@@ -270,47 +289,20 @@ async def health_live(
     responses={
         status.HTTP_503_SERVICE_UNAVAILABLE: {
             "model": ApiErrorResponse,
-            "description": "Database or external service unreachable",
+            "description": "Database unreachable",
         }
     },
     summary="Readiness check",
-    description="Confirms that the application can reach MongoDB and auxiliary services.",
+    description=(
+        "Public, minimal: confirms the application can reach MongoDB. It makes no calls to "
+        "storage, email, AI or Google; use the guarded GET /health for those."
+    ),
 )
-async def health_ready(
-    settings: SettingsDep,
-    storage: StorageDep,
-    groq_client: GroqClientDep,
-) -> HealthReadyResponse:
-    """Readiness probe. Pings MongoDB and auxiliary services."""
-    # 1. Critical check: MongoDB must succeed or raise 503
+async def health_ready() -> HealthReadyResponse:
+    """Readiness probe: MongoDB ping only (503 envelope if unreachable)."""
     latency_ms = await mongo_manager.ping()
-
-    # 2. Concurrently probe auxiliary subsystems without blocking readiness
-    r2_res, email_res, groq_res, google_res = await asyncio.gather(
-        _check_r2_storage(storage, settings),
-        _check_email_service(settings),
-        _check_groq_client(groq_client, settings),
-        _check_google_oauth(settings),
-        return_exceptions=True,
-    )
-
-    r2_status = r2_res if isinstance(r2_res, StorageHealthStatus) else None
-    email_status = email_res if isinstance(email_res, EmailHealthStatus) else None
-    groq_status = groq_res if isinstance(groq_res, GroqHealthStatus) else None
-    google_status = google_res if isinstance(google_res, GoogleAuthHealthStatus) else None
-    whatsapp_status = _check_whatsapp_service()
-
     return HealthReadyResponse(
         status="ready",
         service="moonlight-studio-api",
-        database=DatabaseHealthStatus(
-            connected=True,
-            status="connected",
-            latency_ms=latency_ms,
-        ),
-        storage=r2_status,
-        email=email_status,
-        whatsapp=whatsapp_status,
-        groq_ai=groq_status,
-        google_oauth=google_status,
+        database=DatabaseHealthStatus(connected=True, status="connected", latency_ms=latency_ms),
     )

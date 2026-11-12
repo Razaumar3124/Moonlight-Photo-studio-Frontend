@@ -175,11 +175,24 @@ local fallbacks with live endpoints as the backend resolves API_ALIGNMENT items.
       test-mode errors no longer reveal the test inbox
 - [x] Hermetic tests (no `.env`, network blocked); 38 → 0 Ruff issues; dead code removed; 264 tests
 
-## Backend Phase 2: Security hardening (next)
+## Backend Phase 2: Security hardening ✅ (2026-11-12)
 
-Trusted-proxy client IP, login/OTP rate limiting (per IP + identifier, shared store), real dummy hash
-for timing, request-size limits on uploads, protect `/health`, no exception text in API errors,
-atomic refresh rotation, cookie-only refresh token, `HTTP_422_UNPROCESSABLE_CONTENT` migration.
+- [x] Client IP only from TRUSTED_PROXIES (right-to-left X-Forwarded-For); run uvicorn with
+      `--no-proxy-headers`
+- [x] Shared rate limiter (MongoDB TTL collection, atomic, hashed keys; bounded memory fallback):
+      login per IP + account / account / IP, OTP request + verify, reset step, uploads, quotes;
+      `Retry-After`
+- [x] Real dummy Argon2id hash; forgot-password email sent in the background (no timing or error leak)
+- [x] Atomic refresh rotation with concurrent-tab grace and family revocation on reuse
+- [x] Refresh token cookie-only (configurable path); CSRF header + Origin check on cookie endpoints;
+      frontend access token in memory only
+- [x] Sub-second `iat`; optional auth now honours password-change revocation
+- [x] Streaming body limits (413 before buffering) + upload size checks before `read()`
+- [x] Minimal public `/health/live` and `/health/ready`; token-guarded detailed `/health`
+- [x] No exception, driver or input text in API errors; JSON log formatter fixed and masked
+- [x] Security headers, tighter CORS, private caching for share links; RFC 9110 status constants
+- [x] 324 backend tests (+60 security, incl. live-MongoDB concurrency), mutation-checked; 40/40
+      end-to-end checks on a throwaway database
 
 ## Backend Phase 3+: Contract alignment & frontend wiring
 

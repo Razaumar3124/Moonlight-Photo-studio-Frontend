@@ -15,6 +15,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import HTMLResponse
+from pydantic import ValidationError as PydanticValidationError
 
 from app.api.dependencies import (
     CurrentUserDep,
@@ -22,7 +23,7 @@ from app.api.dependencies import (
     QuoteServiceDep,
     SettingsDep,
 )
-from app.core.exceptions import ValidationException
+from app.core.exceptions import PayloadTooLargeException, ValidationException
 from app.schemas.common import ApiErrorResponse
 from app.schemas.quote import (
     QuoteDetailResponse,
@@ -35,6 +36,20 @@ from app.services.rate_limiter import rate_limiter
 logger = logging.getLogger("moonlight_studio.quotes")
 
 router = APIRouter(prefix="/quotes", tags=["Quotes"])
+
+# The shared report is an HTML page whose URL carries the share token: lock it to its own
+# assets (plus Google Fonts used by the template), never send the URL on as a Referer, and
+# keep it out of shared caches.
+_REPORT_HTML_HEADERS = {
+    "Content-Security-Policy": (
+        "default-src 'none'; img-src 'self' data:; "
+        "style-src 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+    ),
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "private, no-store",
+}
 
 
 @router.post(
@@ -54,7 +69,7 @@ router = APIRouter(prefix="/quotes", tags=["Quotes"])
             "model": ApiErrorResponse,
             "description": "Photo ownership validation failed",
         },
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {
             "model": ApiErrorResponse,
             "description": "Validation failure on wall dimensions or frames",
         },
@@ -84,10 +99,11 @@ async def prepare_quote(
 ) -> QuotePrepareResponse:
     """Prepare a quote request via WhatsApp Click-to-Chat."""
     # 1. Enforce rate limiting
-    rate_limiter.check_rate_limit(
-        key=f"quote_prepare:{current_user.id}",
-        max_attempts=settings.RATE_LIMIT_QUOTE_PREPARE_MAX_ATTEMPTS,
-        window_seconds=settings.RATE_LIMIT_QUOTE_PREPARE_WINDOW_SECONDS,
+    await rate_limiter.hit(
+        "quote_prepare:user",
+        str(current_user.id),
+        settings.RATE_LIMIT_QUOTE_PREPARE_MAX_ATTEMPTS,
+        settings.RATE_LIMIT_QUOTE_PREPARE_WINDOW_SECONDS,
     )
 
     # 2. Parse design payload JSON
@@ -97,16 +113,32 @@ async def prepare_quote(
     except json.JSONDecodeError as exc:
         raise ValidationException(
             message="Invalid design_data format. Expected valid JSON string.",
-            details=[{"field": "design_data", "issue": f"JSON decode error: {exc}"}],
+            details=[{"field": "design_data", "issue": "Not valid JSON"}],
         ) from exc
-    except Exception as exc:
+    except PydanticValidationError as exc:
+        # Field paths and messages only: never echo submitted values or internal model names.
+        details = [
+            {
+                "field": "design_data." + ".".join(str(part) for part in err["loc"]),
+                "issue": err["msg"],
+            }
+            for err in exc.errors(include_input=False, include_url=False)[:20]
+        ]
         raise ValidationException(
-            message="Design configuration fails validation constraints.",
-            details=[{"field": "design_data", "issue": str(exc)}],
+            message="Design configuration fails validation constraints.", details=details
         ) from exc
 
-    # 3. Read image bytes
-    preview_bytes = await file.read()
+    # 3. Read image bytes (size checked before anything is loaded into memory)
+    max_bytes = settings.QUOTE_PREVIEW_MAX_MB * 1024 * 1024
+    if file.size is not None and file.size > max_bytes:
+        raise PayloadTooLargeException(
+            f"Preview image is larger than {settings.QUOTE_PREVIEW_MAX_MB} MB.", field="file"
+        )
+    preview_bytes = await file.read(max_bytes + 1)
+    if len(preview_bytes) > max_bytes:
+        raise PayloadTooLargeException(
+            f"Preview image is larger than {settings.QUOTE_PREVIEW_MAX_MB} MB.", field="file"
+        )
 
     # 4. Process quote through quote service
     response = await quote_service.prepare_quote(
@@ -148,7 +180,7 @@ async def get_shared_quote(
 
     # By default, render full responsive branded HTML report
     html_content = report_service.render_report_html(quote, preview_url)
-    return HTMLResponse(content=html_content)
+    return HTMLResponse(content=html_content, headers=_REPORT_HTML_HEADERS)
 
 
 @router.get(
@@ -179,7 +211,7 @@ async def get_shared_quote_preview(
         content=data,
         media_type=content_type or quote.preview_image_content_type,
         headers={
-            "Cache-Control": "public, max-age=86400",
+            "Cache-Control": "private, max-age=3600",
             "Content-Disposition": f'inline; filename="{filename}"',
         },
     )

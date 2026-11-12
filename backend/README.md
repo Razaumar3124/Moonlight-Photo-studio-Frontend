@@ -21,8 +21,12 @@ cd backend
 uv sync                      # creates .venv with runtime + dev dependencies
 cp .env.example .env         # then set SECRET_KEY and OTP_SECRET_KEY (see below)
 uv run python -m app.db.seed_catalog          # idempotent: adds missing catalog/templates only
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 8000 --no-proxy-headers
 ```
+
+Always pass `--no-proxy-headers`. By default uvicorn rewrites the client address from
+`X-Forwarded-For` for connections from 127.0.0.1, a second, hidden trust list that would let
+local callers spoof their IP. Client-IP trust is configured in one place: `TRUSTED_PROXIES`.
 
 - API: <http://localhost:8000/api/v1> · Swagger UI: <http://localhost:8000/docs>
   (docs are disabled when `ENVIRONMENT=production` and `DEBUG=false`)
@@ -64,6 +68,25 @@ test mode off, Groq has a key when enabled, the WhatsApp number isn't the placeh
 Startup logs the (credential-masked) database target and storage backend, and warns if the
 built-in development `SECRET_KEY` is in use.
 
+## Security model (Phase 2)
+
+| Area | Behaviour |
+|---|---|
+| Sessions | Access token (JWT, 30 min) in the JSON body: the frontend keeps it **in memory only**. The refresh token is **only** an httpOnly, `SameSite` cookie on `REFRESH_COOKIE_PATH` (default `/api/v1/auth`); it never appears in a body and is never read from one. |
+| Refresh rotation | `POST /auth/refresh` claims the token with one atomic `find_one_and_update`, so concurrent refreshes rotate exactly once. A request that loses the race within `REFRESH_REUSE_GRACE_SECONDS` (two tabs, a retry) gets an access token and no new cookie. Replaying a token after that, or after logout, revokes the whole token family. |
+| CSRF | Endpoints that set or read the cookie (`register`, `login`, `google`, `refresh`, `logout`) require `X-CSRF-Protection: 1`, and a browser `Origin`/`Referer` must be in `CORS_ORIGINS`, `PUBLIC_APP_URL` or the API's own origin. Bearer-token endpoints need neither. |
+| Client IP | `X-Forwarded-For` / `X-Real-IP` are only honoured when the socket peer is in `TRUSTED_PROXIES`, read right to left skipping trusted hops. `CF-Connecting-IP` alone is ignored. |
+| Rate limits | Fixed windows in the `rate_limits` collection (atomic upserts, TTL index, SHA-256-hashed subjects), or bounded process memory (`RATE_LIMIT_BACKEND=memory`). Login: per IP + account (5/5 min), per account (20/15 min), per IP (30/5 min). Registration, code requests (per email and IP), code checks (per IP and per email), the reset step, uploads and quotes are limited too. 429 responses carry `Retry-After`. |
+| Account enumeration | Unknown accounts cost the same Argon2id work as wrong passwords (a real dummy hash). Forgot-password answers identically for unknown emails; the email goes out after the response, and delivery errors are logged, never returned. |
+| Revocation | A password reset revokes refresh sessions, and access tokens issued before it (sub-second `iat`) on both required and optional auth. |
+| Request size | Bodies are capped while streaming, before buffering: `MAX_REQUEST_BODY_BYTES` (1 MiB) generally, `R2_MAX_UPLOAD_MB` for photos, `QUOTE_PREVIEW_MAX_MB` for quote previews. A declared `Content-Length` over the limit gets 413 before any body byte is read. |
+| Errors & logs | Clients get the standard envelope with generic text. Driver, SDK and exception messages go to logs only, with credentials masked (including tracebacks); JSON logs never include raw log arguments. Validation errors never echo submitted values. |
+| Health | `/health/live` and `/health/ready` (MongoDB ping only) are public and minimal. Detailed `GET /health` is open in development, otherwise it answers 404 without a matching `X-Health-Token` (`HEALTH_DIAGNOSTICS_TOKEN`). |
+| Headers | `nosniff`, `X-Frame-Options: DENY`, deny-all API CSP, `Referrer-Policy`, `Permissions-Policy`, COOP; `Cache-Control: no-store` on `/auth/*`; HSTS in production. The shared quote report has its own CSP (no scripts), `Referrer-Policy: no-referrer` and `private, no-store`. CORS allows only the four headers the frontend sends. |
+
+Behind a reverse proxy or load balancer, set `TRUSTED_PROXIES` to its address range, or every
+client is counted as the proxy's single IP for rate limiting.
+
 ## Local development storage
 
 `STORAGE_BACKEND=local` stores photos and quote previews under `LOCAL_STORAGE_PATH` (default
@@ -102,6 +125,9 @@ Both print the masked target first. Check it before running them against a share
 | Quotes | `POST /quotes/prepare`, `GET /quotes/{id}`, `GET /quotes/share/{token}`, `GET /quotes/share/{token}/preview`; short link `GET /q/{token}` |
 
 Errors use one envelope: `{"error": {"code", "message", "details": [{"field", "issue"}], "timestamp"}}`.
+Notable codes: `CSRF_VALIDATION_FAILED` (403), `RATE_LIMIT_EXCEEDED` (429 + `Retry-After`),
+`PAYLOAD_TOO_LARGE` (413), `TOKEN_REVOKED` / `TOKEN_EXPIRED` / `INVALID_TOKEN` (401),
+`DATABASE_UNAVAILABLE` / `STORAGE_UNAVAILABLE` (503), `GOOGLE_AUTH_NOT_CONFIGURED` (503).
 Quote references are `MQ-YYYY-NNNN`. The live schema is at `/api/v1/openapi.json` (non-production).
 
 ## Quality gates
@@ -114,9 +140,10 @@ uv run pytest
 
 The test suite is **hermetic** ([tests/conftest.py](tests/conftest.py)): it never reads
 `backend/.env`, pins every integration to an offline value, uses a temporary storage folder, and
-fails any test that tries to reach a non-loopback host. The one live test,
-`test_live_mongo_registration.py`, runs only if MongoDB is listening on localhost. It uses
-the throwaway database `moonlight_studio_pytest_live` and drops it afterwards.
+fails any test that tries to reach a non-loopback host. The live tests
+(`test_live_mongo_registration.py`, `test_live_mongo_security.py`) run only if MongoDB is
+listening on localhost; they use throwaway `moonlight_studio_pytest_live*` databases and drop
+them afterwards. `test_security_hardening.py` holds the Phase 2 security regression suite.
 
 ## Layout
 

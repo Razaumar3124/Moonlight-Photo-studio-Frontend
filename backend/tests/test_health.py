@@ -8,12 +8,8 @@ async def test_health_live_endpoint(client: AsyncClient):
     response = await client.get("/api/v1/health/live")
     assert response.status_code == 200
 
-    data = response.json()
-    assert data["status"] == "ok"
-    assert data["service"] == "moonlight-studio-api"
-    assert "version" in data
-    assert isinstance(data["uptime_seconds"], (int, float))
-    assert data["uptime_seconds"] >= 0
+    # Public probe: minimal, no version or uptime fingerprinting.
+    assert response.json() == {"status": "ok", "service": "moonlight-studio-api"}
 
 
 @pytest.mark.asyncio
@@ -114,16 +110,12 @@ async def test_health_system_unhealthy_when_database_down(
 
 
 @pytest.mark.asyncio
-async def test_health_ready_enriched_components(client: AsyncClient, mock_mongo_connected):
-    """Test GET /api/v1/health/ready contains enriched component diagnostics."""
+async def test_health_ready_is_minimal(client: AsyncClient, mock_mongo_connected):
+    """Public readiness reveals no integration details (they live behind GET /health)."""
     response = await client.get("/api/v1/health/ready")
     assert response.status_code == 200
 
     data = response.json()
-    assert data["status"] == "ready"
-    assert data["database"]["connected"] is True
-    assert "storage" in data
-    assert "email" in data
-    assert "whatsapp" in data
-    assert "groq_ai" in data
-    assert "google_oauth" in data
+    assert set(data) == {"status", "service", "database", "timestamp"}
+    for hidden in ("storage", "email", "whatsapp", "groq_ai", "google_oauth"):
+        assert hidden not in data

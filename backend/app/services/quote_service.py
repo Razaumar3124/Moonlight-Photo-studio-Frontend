@@ -166,7 +166,7 @@ class QuoteService:
             logger.warning("Corrupt or invalid preview image submitted: %s", exc)
             raise ValidationException(
                 message="Corrupt or unreadable preview image.",
-                details=[{"field": "preview_image", "issue": f"Decompression failed: {exc}"}],
+                details=[{"field": "preview_image", "issue": "Image data is corrupt"}],
             ) from exc
 
     async def prepare_quote(

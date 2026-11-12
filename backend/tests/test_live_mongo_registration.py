@@ -66,7 +66,11 @@ async def test_live_mongodb_registration_workflow():
         test_name = "Live Test Customer"
 
         transport = ASGITransport(app=app)
-        async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        async with AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            headers={"X-CSRF-Protection": "1"},
+        ) as client:
             payload = {
                 "full_name": test_name,
                 "email": test_email,

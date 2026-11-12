@@ -7,7 +7,6 @@ from bson import ObjectId
 from app.core.config import get_settings
 from app.core.exceptions import (
     ForbiddenException,
-    RateLimitExceededException,
     ResourceNotFoundException,
     StorageUnavailableException,
 )
@@ -66,15 +65,13 @@ class PhotoService:
         settings = get_settings()
 
         # 1. Rate limiting on photo uploads (30 uploads / hour per user)
-        rate_key = f"photo_upload:{user_id}"
-        if not rate_limiter.is_allowed(
-            rate_key,
-            max_attempts=settings.RATE_LIMIT_PHOTO_UPLOAD_MAX_ATTEMPTS,
-            window_seconds=settings.RATE_LIMIT_PHOTO_UPLOAD_WINDOW_SECONDS,
-        ):
-            raise RateLimitExceededException(
-                "Upload rate limit exceeded. You may upload up to 30 photos per hour."
-            )
+        await rate_limiter.hit(
+            "photo_upload:user",
+            user_id,
+            settings.RATE_LIMIT_PHOTO_UPLOAD_MAX_ATTEMPTS,
+            settings.RATE_LIMIT_PHOTO_UPLOAD_WINDOW_SECONDS,
+            "Upload rate limit exceeded. Please wait before uploading more photos.",
+        )
 
         # 2. Sanitize and trim filename
         clean_filename = filename.strip()[:120] if filename else "untitled.jpg"

@@ -1,8 +1,10 @@
 import hashlib
 import hmac
+import ipaddress
 import re
 import secrets
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 from typing import Any
 
 import argon2
@@ -37,6 +39,23 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
     except Exception:
         return False
+
+
+@lru_cache(maxsize=1)
+def _dummy_password_hash() -> str:
+    """A genuine Argon2id hash (same parameters as real ones) of a random, discarded secret."""
+    return _hasher.hash(secrets.token_urlsafe(32))
+
+
+def verify_dummy_password(plain_password: str) -> None:
+    """Spend the same Argon2id work as a real verification, for accounts that don't exist
+    or have no password, so response time doesn't reveal whether an account exists."""
+    verify_password(plain_password, _dummy_password_hash())
+
+
+def warm_up_password_hashing() -> None:
+    """Compute the dummy hash at startup so the first unknown-account login isn't faster."""
+    _dummy_password_hash()
 
 
 def hash_token(raw_token: str) -> str:
@@ -102,7 +121,9 @@ def create_access_token(
     payload: dict[str, Any] = {
         "sub": str(subject),
         "role": role,
-        "iat": int(now.timestamp()),
+        # Sub-second precision (RFC 7519 NumericDate allows fractions), so a token issued just
+        # after a password change is never mistaken for one issued before it.
+        "iat": now.timestamp(),
         "exp": int(expire_time.timestamp()),
         "jti": secrets.token_hex(16),
     }
@@ -164,36 +185,53 @@ def normalize_phone(raw: str, default_country_code: str = "+91") -> str | None:
     return None
 
 
-def get_client_ip(request: Any) -> str | None:
-    """Extract client IP, inspecting trusted proxy headers if present.
+def _parse_ip(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(value.strip())
+    except ValueError:
+        return None
 
-    Checks headers in order of specificity:
-    1. CF-Connecting-IP (Cloudflare)
-    2. X-Forwarded-For (client IP is first in comma-separated list)
-    3. X-Real-IP (standard reverse proxy)
-    4. Direct socket client host (request.client.host)
+
+def get_client_ip(request: Any) -> str | None:
+    """Client IP for rate limiting and audit logs, resistant to header spoofing.
+
+    Forwarding headers are only honoured when the direct peer is one of TRUSTED_PROXIES.
+    ``X-Forwarded-For`` is then read right to left, skipping trusted hops, so values a
+    client prepends are ignored. ``X-Real-IP`` is used when no ``X-Forwarded-For`` exists.
+    Behind Cloudflare, list Cloudflare's ranges in TRUSTED_PROXIES (its edge appends to
+    ``X-Forwarded-For``); ``CF-Connecting-IP`` alone is never trusted.
     """
     if not request:
         return None
 
-    headers = getattr(request, "headers", None)
-    if headers:
-        cf_ip = headers.get("cf-connecting-ip")
-        if cf_ip and cf_ip.strip():
-            return cf_ip.strip()
-
-        x_forwarded = headers.get("x-forwarded-for")
-        if x_forwarded and x_forwarded.strip():
-            client_candidate = x_forwarded.split(",")[0].strip()
-            if client_candidate:
-                return client_candidate
-
-        real_ip = headers.get("x-real-ip")
-        if real_ip and real_ip.strip():
-            return real_ip.strip()
-
     client = getattr(request, "client", None)
-    return client.host if client else None
+    peer = client.host if client else None
+    networks = get_settings().trusted_proxy_networks
+    peer_ip = _parse_ip(peer) if peer else None
+    if not networks or peer_ip is None:
+        return peer
+
+    def is_trusted(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+        return any(ip in network for network in networks)
+
+    if not is_trusted(peer_ip):
+        return peer
+
+    headers = getattr(request, "headers", None) or {}
+    forwarded = headers.get("x-forwarded-for", "")
+    hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+    if not hops and headers.get("x-real-ip"):
+        hops = [headers["x-real-ip"].strip()]
+
+    candidate = peer
+    for hop in reversed(hops):
+        hop_ip = _parse_ip(hop)
+        if hop_ip is None:
+            break  # malformed entry: don't trust anything further left
+        candidate = str(hop_ip)
+        if not is_trusted(hop_ip):
+            break
+    return candidate
 
 
 def generate_photo_signature(photo_id: str, kind: str, expires_at: int) -> str:

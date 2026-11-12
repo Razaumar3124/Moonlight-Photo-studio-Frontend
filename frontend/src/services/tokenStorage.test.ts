@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeStorage } from '@/test/fakeStorage'
 
-const KEY = 'moonlight.auth'
+const LEGACY_KEY = 'moonlight.auth'
 
-// tokenStorage caches in module scope, so each test gets a fresh module + storage.
+// tokenStorage keeps state in module scope, so each test gets a fresh module + storage.
 async function load(initial: Record<string, string> = {}) {
   const storage = createFakeStorage(initial)
   vi.stubGlobal('localStorage', storage)
@@ -12,22 +12,36 @@ async function load(initial: Record<string, string> = {}) {
   return { tokenStorage, storage }
 }
 
-const tokens = { access_token: 'acc', refresh_token: 'ref', token_type: 'bearer' as const, expires_in: 3600 }
+const tokens = { access_token: 'acc', token_type: 'bearer' as const, expires_in: 3600 }
 
 describe('tokenStorage', () => {
   beforeEach(() => {
     vi.useRealTimers()
   })
 
-  it('saves, reads and clears a session', async () => {
+  it('saves, reads and clears a session in memory only', async () => {
     const { tokenStorage, storage } = await load()
     tokenStorage.save(tokens)
     expect(tokenStorage.getAccessToken()).toBe('acc')
-    expect(tokenStorage.getRefreshToken()).toBe('ref')
-    expect(storage.getItem(KEY)).not.toBeNull()
+    expect(tokenStorage.hasSession()).toBe(true)
+    expect(storage.length).toBe(0) // nothing written to localStorage
     tokenStorage.clear()
     expect(tokenStorage.hasSession()).toBe(false)
-    expect(storage.getItem(KEY)).toBeNull()
+    expect(tokenStorage.getAccessToken()).toBeNull()
+  })
+
+  it('does not survive a reload (the refresh cookie restores the session instead)', async () => {
+    const first = await load()
+    first.tokenStorage.save(tokens)
+    const second = await load()
+    expect(second.tokenStorage.getAccessToken()).toBeNull()
+  })
+
+  it('removes tokens persisted by earlier builds', async () => {
+    const legacy = JSON.stringify({ accessToken: 'old', refreshToken: 'old-r', expiresAt: 9e15 })
+    const { tokenStorage, storage } = await load({ [LEGACY_KEY]: legacy })
+    expect(storage.getItem(LEGACY_KEY)).toBeNull()
+    expect(tokenStorage.getAccessToken()).toBeNull()
   })
 
   it('does not return an expired access token but still reports the session', async () => {
@@ -39,29 +53,22 @@ describe('tokenStorage', () => {
     expect(tokenStorage.hasSession()).toBe(true)
   })
 
-  it.each([
-    ['invalid JSON', '{nope'],
-    ['wrong shape', JSON.stringify({ accessToken: 42, refreshToken: 'r', expiresAt: 1 })],
-    ['empty token', JSON.stringify({ accessToken: '', refreshToken: 'r', expiresAt: 9e15 })],
-    ['non-finite expiry', JSON.stringify({ accessToken: 'a', refreshToken: 'r', expiresAt: 'soon' })],
-    ['array', '[]'],
-  ])('discards tampered storage (%s)', async (_label, raw) => {
-    const { tokenStorage, storage } = await load({ [KEY]: raw })
-    expect(tokenStorage.getAccessToken()).toBeNull()
-    expect(tokenStorage.hasSession()).toBe(false)
-    expect(storage.getItem(KEY)).toBeNull()
-  })
-
   it('treats a missing or garbled expires_in as already expired (never "forever")', async () => {
     const { tokenStorage } = await load()
     tokenStorage.save({ ...tokens, expires_in: Number.NaN })
     expect(tokenStorage.getAccessToken()).toBeNull()
   })
 
-  it('keeps working in memory when storage throws (private mode / blocked)', async () => {
+  it('ignores an empty or malformed access token', async () => {
+    const { tokenStorage } = await load()
+    tokenStorage.save({ ...tokens, access_token: '' })
+    expect(tokenStorage.hasSession()).toBe(false)
+  })
+
+  it('works when storage is unavailable (private mode / blocked)', async () => {
     const throwing = createFakeStorage()
-    throwing.setItem = () => {
-      throw new Error('QuotaExceededError')
+    throwing.removeItem = () => {
+      throw new Error('SecurityError')
     }
     vi.stubGlobal('localStorage', throwing)
     vi.resetModules()
