@@ -14,7 +14,7 @@ code comments in `frontend/src/types/api/`, so keep the numbering stable. Mark i
 | Base URL `/api/v1`                | `VITE_API_BASE_URL` defaults to `/api/v1`. Vite proxies `/api` and `/static` to FastAPI in dev                                                       |
 | Error envelope `{ error: {…} }`   | `ApiError` exposes `status`, `code`, `message`, `details[]`, `timestamp`, `fieldErrors`. It also parses FastAPI's default `{ detail }` as a fallback |
 | Bearer JWT                        | `Authorization: Bearer <access_token>` attached automatically from `tokenStorage`                                                                    |
-| 401                               | Tokens cleared, then a registered handler runs (redirects to `/login` from Phase 5)                                                                  |
+| 401                               | One refresh + replay; if that fails, tokens are cleared and the `AuthProvider` handler sends the user to `/login`                                                                  |
 | JSON + multipart upload           | `api.get/post/put/patch/delete` + `api.upload(path, { file })`                                                                                       |
 | Query params                      | `query` option. `undefined` values skipped, arrays repeated                                                                                          |
 | Inches, top-left origin           | UI keeps the user's unit and converts at the boundary (`lib/units.ts`)                                                                               |
@@ -22,7 +22,7 @@ code comments in `frontend/src/types/api/`, so keep the numbering stable. Mark i
 | Relative asset URLs (`/static/…`) | `resolveApiUrl()` resolves them against the API origin                                                                                               |
 | Every endpoint                    | Paths in `services/endpoints.ts`. Request/response types in `types/api/*` (snake_case, 1:1 with the wire)                                            |
 
-Endpoint functions and live calls are **not** wired yet (Phase 5).
+Auth calls are wired (`services/authService.ts`, Phase 4). The planner, designs, photos and quotes are not (Phase 5).
 
 ## 2. Mismatches between the contract and the designs
 

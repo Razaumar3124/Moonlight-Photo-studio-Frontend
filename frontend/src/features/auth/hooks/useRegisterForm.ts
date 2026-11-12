@@ -1,7 +1,5 @@
-import { useNavigate } from 'react-router-dom'
-import { ROUTES } from '@/config/routes'
 import { useForm } from '@/hooks/useForm'
-import { mockRegister } from '../lib/mockAuth'
+import { useAuth } from '../authContext'
 import {
   mapRegisterError,
   REGISTER_FIELDS,
@@ -10,9 +8,12 @@ import {
   validateRegisterField,
 } from '../lib/registerValidation'
 
-/** Register form: generic form behaviour from `useForm` + register rules, payload and errors. */
+/**
+ * Register form: generic form behaviour from `useForm` + register rules, payload and errors.
+ * Registering signs the user in (the API returns a session), so GuestRoute navigates onward.
+ */
 export function useRegisterForm() {
-  const navigate = useNavigate()
+  const { register } = useAuth()
 
   return useForm({
     fields: REGISTER_FIELDS,
@@ -20,9 +21,7 @@ export function useRegisterForm() {
     validateField: (field, value) => validateRegisterField(field, value),
     mapSubmitError: mapRegisterError,
     onSubmit: async (values, signal) => {
-      // TODO(Phase 5): swap mockRegister for services/auth.register (same signature) + store tokens.
-      await mockRegister(toRegisterRequest(values), signal)
-      navigate(ROUTES.memoryWall, { replace: true })
+      await register(toRegisterRequest(values), signal)
     },
   })
 }

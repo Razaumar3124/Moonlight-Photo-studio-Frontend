@@ -10,16 +10,20 @@ import { imagetools } from 'vite-imagetools'
  * needs inline scripts for HMR). Defence in depth for the JS-readable auth tokens (API_ALIGNMENT Q3).
  * `frame-ancestors` can't be set via <meta>, so hosting must send it as a header (docs/SECURITY.md).
  */
-function contentSecurityPolicy(apiBaseUrl: string): Plugin {
+function contentSecurityPolicy(apiBaseUrl: string, googleSignIn: boolean): Plugin {
   const apiOrigin = /^https?:\/\//i.test(apiBaseUrl) ? new URL(apiBaseUrl).origin : ''
+  // "Continue with Google" (Identity Services) needs exactly these, only when a client ID is set:
+  // https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid#content_security_policy
+  const gsi = 'https://accounts.google.com/gsi/'
   const csp = [
     "default-src 'self'",
-    "script-src 'self'",
+    `script-src 'self'${googleSignIn ? ` ${gsi}client` : ''}`,
     // style-src needs 'unsafe-inline' for React `style` attributes (e.g. hero object-position).
-    "style-src 'self' 'unsafe-inline'",
+    `style-src 'self' 'unsafe-inline'${googleSignIn ? ` ${gsi}style` : ''}`,
     `img-src 'self' data: blob: ${apiOrigin}`.trim(),
     "font-src 'self'",
-    `connect-src 'self' ${apiOrigin}`.trim(),
+    ['connect-src', "'self'", apiOrigin, googleSignIn && gsi].filter(Boolean).join(' '),
+    ...(googleSignIn ? [`frame-src ${gsi}`] : []),
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
@@ -53,7 +57,7 @@ export default defineConfig(({ mode }) => {
       // (e.g. `hero.webp?w=480;960&format=webp&as=srcset`). Source files are never modified.
       // Image imports live only in the src/assets/*.ts manifests (docs/ASSETS.md).
       imagetools(),
-      contentSecurityPolicy(env.VITE_API_BASE_URL ?? '/api/v1'),
+      contentSecurityPolicy(env.VITE_API_BASE_URL ?? '/api/v1', Boolean(env.VITE_GOOGLE_CLIENT_ID)),
     ],
     resolve: {
       alias: {

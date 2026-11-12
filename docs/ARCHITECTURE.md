@@ -31,7 +31,7 @@ frontend/src/
 │   ├── App.tsx
 │   ├── router.tsx               All routes, lazy-loaded
 │   ├── NotFoundPage.tsx
-│   └── providers/               (empty) AuthProvider, QueryClientProvider… (Phase 5)
+│   └── providers/               (empty) QueryClientProvider… (Phase 5). AuthProvider lives in features/auth
 │
 ├── assets/                      Static files. See docs/ASSETS.md
 │   ├── types.ts                 ImageAsset, HeroImageAsset, SamplePhotoAsset
@@ -76,11 +76,12 @@ frontend/src/
 │   └── money.ts                 formatMoney(DecimalString, currency)
 │
 ├── services/                    The only layer that talks to the network
-│   ├── apiClient.ts             fetch wrapper: base URL, Bearer auth, ApiError, query, upload
+│   ├── apiClient.ts             fetch wrapper: base URL, Bearer auth, single-flight refresh, ApiError
 │   ├── endpoints.ts             Every backend path from API_CONTRACT.md
+│   ├── authService.ts           Typed auth endpoints (register, login, Google, refresh, reset…)
 │   └── tokenStorage.ts          Access token in memory (refresh token is an httpOnly cookie)
-│                                Phase 5 adds one module per domain: auth.ts, catalog.ts,
-│                                photos.ts, templates.ts, geometry.ts, designs.ts, quotes.ts
+│                                Phase 5 adds one module per domain: catalog.ts, photos.ts,
+│                                templates.ts, geometry.ts, designs.ts, quotes.ts
 │
 ├── styles/theme.css             Design tokens (@theme)
 ├── types/
@@ -162,8 +163,10 @@ The contract lives in [API_CONTRACT.md](API_CONTRACT.md). Gaps and open question
 - **Base URL** `/api/v1` (`VITE_API_BASE_URL`). In dev, Vite proxies `/api` and `/static` to
   `VITE_API_PROXY_TARGET` (default `http://localhost:8000`), so there's no CORS locally.
 - **Auth:** JWT Bearer. `apiClient` attaches `Authorization: Bearer …` from `tokenStorage`.
-  On a 401 for a signed-in user it clears tokens and calls the handler registered with
-  `setUnauthorizedHandler` (the auth provider sets this to "redirect to /login").
+  On a 401 for a signed-in user it renews the token through the refresh cookie (one shared
+  `/auth/refresh`) and replays the request once; if that fails it clears tokens and calls the handler
+  registered with `setUnauthorizedHandler` (`AuthProvider` sets it; the route guards then redirect).
+  `features/auth/AuthProvider` owns the user and session state; `useAuth()` exposes it.
 - **Errors:** every failure throws `ApiError` with `{ status, code, message, details[], timestamp }`
   from the contract's envelope. `error.fieldErrors` gives `{ field: issue }` for inline form
   errors. Network failures use `code: 'NETWORK_ERROR'` and `status: 0`.

@@ -1,5 +1,6 @@
 import { env } from '@/config/env'
-import type { ApiErrorCode, ApiErrorDetail, ApiErrorEnvelope } from '@/types/api'
+import type { ApiErrorCode, ApiErrorDetail, ApiErrorEnvelope, AuthTokens } from '@/types/api'
+import { endpoints } from './endpoints'
 import { tokenStorage } from './tokenStorage'
 
 /* ================================== Errors ================================== */
@@ -106,8 +107,9 @@ type UnauthorizedHandler = (error: ApiError) => void
 let unauthorizedHandler: UnauthorizedHandler | null = null
 
 /**
- * Register what happens when an authenticated request gets a 401 (e.g. redirect to /login).
- * Set once by the auth layer. Tokens are cleared before it runs.
+ * Register what happens when the session is lost: an authenticated request still gets a 401 after
+ * a refresh attempt (e.g. show the sign-in page). Set once by the auth layer. The access token is
+ * cleared before it runs.
  */
 export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
   unauthorizedHandler = handler
@@ -125,6 +127,11 @@ export interface RequestOptions extends Omit<RequestInit, 'body' | 'method'> {
   query?: QueryParams
   /** Attach the Bearer token if one exists. Default true; harmless on public endpoints. */
   auth?: boolean
+  /**
+   * With `auth`, renew an expired/rejected access token through the refresh cookie and retry once
+   * (default true). The refresh call itself turns this off.
+   */
+  refresh?: boolean
 }
 
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
@@ -149,15 +156,97 @@ function buildUrl(path: string, query?: QueryParams): string {
   return qs ? `${url}?${qs}` : url
 }
 
+/* ============================ Session refresh =============================== */
+
+let refreshInFlight: Promise<boolean> | null = null
+
+/**
+ * Exchange the httpOnly refresh cookie for a new access token (the backend rotates the cookie).
+ * Single-flight: concurrent callers (parallel requests, React StrictMode) share one network call,
+ * because rotating the same cookie twice at once would needlessly race.
+ *
+ * Resolves `true` when a new access token is stored, `false` when the server rejected the cookie
+ * (no/expired/revoked session; local state is cleared). Rejects with a network/server error
+ * otherwise, in which case the session may still be valid and is left untouched.
+ */
+export function refreshSession(): Promise<boolean> {
+  refreshInFlight ??= (async () => {
+    try {
+      const tokens = await apiRequest<AuthTokens>('POST', endpoints.auth.refresh, {
+        auth: false,
+        refresh: false,
+      })
+      tokenStorage.save(tokens)
+      return tokenStorage.getAccessToken() !== null
+    } catch (error) {
+      if (isApiError(error) && (error.status === 401 || error.status === 403)) {
+        tokenStorage.clear()
+        return false
+      }
+      throw error
+    } finally {
+      refreshInFlight = null
+    }
+  })()
+  return refreshInFlight
+}
+
 export async function apiRequest<T>(
   method: HttpMethod,
   path: string,
-  { body, query, auth = true, headers, ...init }: RequestOptions = {},
+  options: RequestOptions = {},
 ): Promise<T> {
-  const isFormData = body instanceof FormData
-  const token = auth ? tokenStorage.getAccessToken() : null
+  const { auth = true, refresh = true } = options
   // An expired token is not sent, but the resulting 401 should still end the session.
   const hadSession = auth && tokenStorage.hasSession()
+  const canRefresh = auth && refresh && hadSession
+
+  // Known-expired access token: renew first instead of sending a request that must 401.
+  if (canRefresh && !tokenStorage.getAccessToken()) {
+    try {
+      await refreshSession()
+    } catch {
+      // Offline/server trouble: send the request anyway; it fails on its own terms.
+    }
+  }
+
+  const sentToken = auth ? tokenStorage.getAccessToken() : null
+  try {
+    return await send<T>(method, path, options, sentToken)
+  } catch (error) {
+    if (!(isApiError(error) && error.isUnauthorized && auth)) throw error
+
+    if (canRefresh) {
+      // 401 on a token we sent: renew once and replay. If another request already renewed it
+      // (the current token differs from the one that failed), just replay.
+      const current = tokenStorage.getAccessToken()
+      const renewed = current && current !== sentToken ? true : await refreshSession()
+      if (renewed) {
+        try {
+          return await send<T>(method, path, options, tokenStorage.getAccessToken())
+        } catch (retryError) {
+          if (isApiError(retryError) && retryError.isUnauthorized) endSession(retryError)
+          throw retryError
+        }
+      }
+    }
+    if (hadSession) endSession(error)
+    throw error
+  }
+}
+
+function endSession(error: ApiError) {
+  tokenStorage.clear()
+  unauthorizedHandler?.(error)
+}
+
+async function send<T>(
+  method: HttpMethod,
+  path: string,
+  { body, query, headers, auth: _auth, refresh: _refresh, ...init }: RequestOptions,
+  token: string | null,
+): Promise<T> {
+  const isFormData = body instanceof FormData
 
   // `new Headers()` accepts every HeadersInit form (object, array, Headers instance);
   // object-spreading a Headers instance would silently drop all of its entries.
@@ -210,14 +299,7 @@ export async function apiRequest<T>(
     }
   }
 
-  if (!response.ok) {
-    const error = toApiError(response.status, data)
-    if (error.isUnauthorized && hadSession) {
-      tokenStorage.clear()
-      unauthorizedHandler?.(error)
-    }
-    throw error
-  }
+  if (!response.ok) throw toApiError(response.status, data)
 
   return data as T
 }

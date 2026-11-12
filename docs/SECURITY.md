@@ -36,8 +36,12 @@ Cache-Control: public, max-age=31536000, immutable   # /assets/* (content-hashed
 
 Also configure an SPA fallback, so unknown paths serve `index.html` with status 200 and the app shows its own 404.
 
-When Google sign-in lands (Phase 5), add `https://accounts.google.com` to `script-src`,
-`frame-src` and `connect-src` in the CSP plugin.
+**Google sign-in (Phase 4).** When `VITE_GOOGLE_CLIENT_ID` is set at build time, the CSP plugin adds
+exactly what Google Identity Services needs: `script-src https://accounts.google.com/gsi/client`,
+`style-src …/gsi/style`, `connect-src …/gsi/` and `frame-src …/gsi/`. Nothing else is opened, and
+without a client ID the CSP is unchanged. The Google popup also needs the host to send
+`Cross-Origin-Opener-Policy: same-origin-allow-popups` (a stricter `same-origin` breaks the popup).
+Add the production origin to the client's *Authorized JavaScript origins* in Google Cloud Console.
 
 ## Provided by the backend (Phase 2, 2026-11-12)
 
@@ -55,5 +59,28 @@ used to be requests (API_ALIGNMENT Q2, Q3, Q17, Q18) are done:
 - **CSRF:** `apiClient` sends `X-CSRF-Protection: 1` on every non-GET request. The cookie
   endpoints reject requests without it, or from an `Origin` outside `CORS_ORIGINS`.
 
-When Phase 5 wires auth: on app start call `POST /auth/refresh` (cookie sent automatically) to restore
-the session; on a `401` from it, treat the user as signed out.
+## Frontend session handling (Phase 4, 2026-11-12)
+
+- **Restore:** `AuthProvider` calls `POST /auth/refresh` (cookie sent automatically) and then
+  `GET /auth/me` once per page load. Routes wait on that (`PageLoader`), so a reload never flashes
+  the sign-in page. A `401` means signed out; a network failure also lands on sign-in, with an
+  honest "couldn't reach the server" notice instead of "expired".
+- **Renewal:** `apiClient` refreshes on a `401` (or before sending with a known-expired token) and
+  replays the request once. Concurrent callers share **one** `/auth/refresh` (single-flight), and a
+  caller whose token was already renewed by someone else just replays. A rejected refresh ends the
+  session; a network failure does not.
+- **Guards:** `ProtectedRoute` (planner) and `GuestRoute` (login, register, forgot password).
+  The post-login target comes only from router state and is accepted only as a same-app absolute
+  path that isn't an auth page (`lib/redirect.ts`), so it can't become an open redirect.
+- **Sign out:** `POST /auth/logout` revokes the session and clears the cookie. If the server can't be
+  reached the user stays signed in and is told, because JavaScript can't clear an httpOnly cookie and
+  a reload would otherwise restore the session.
+- **Storage:** nothing auth-related is written to `localStorage`, `sessionStorage`, the URL or logs.
+  The reset email, OTP and reset token live in component state only. Google's ID token is forwarded
+  to `POST /auth/google` and dropped.
+- **Account enumeration:** the forgot-password screens say "if an account exists" for every email;
+  sign-in failures (401/403) ignore field details and show one generic message.
+
+Backend fix found while testing this phase: a refresh cookie rotated less than 30 s earlier (the
+"concurrent tab" grace) could still mint an access token **after logout or a password reset**. The
+grace now applies only while the session family is still active.

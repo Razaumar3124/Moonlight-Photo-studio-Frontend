@@ -57,6 +57,7 @@ const LOGIN_API_FIELD_MAP: Partial<Record<string, LoginField>> = {
 export function mapLoginError(error: unknown): SubmitErrorResult<LoginField> {
   return mapAuthError(error, LOGIN_API_FIELD_MAP, {
     rejected: 'Those details don’t match our records. Check them and try again.',
+    disabled: 'This account has been disabled. Please contact the studio.',
     rateLimited: 'Too many sign-in attempts. Please wait a minute and try again.',
     server: 'We couldn’t sign you in right now. Please try again shortly.',
   })

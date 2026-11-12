@@ -8,6 +8,8 @@ export interface AuthErrorMessages {
   server: string
   /** 409 Conflict without field details (e.g. account already exists). Defaults to `rejected`. */
   conflict?: string
+  /** 403 ACCOUNT_DISABLED (the API only says so after a correct password). Defaults to `rejected`. */
+  disabled?: string
 }
 
 const UNKNOWN = 'Something went wrong. Please try again.'
@@ -28,6 +30,7 @@ export function mapAuthError<F extends string>(
   if (error.isNetworkError) return { formError: error.message }
   if (error.status === 429) return { formError: messages.rateLimited }
   if (error.status >= 500) return { formError: messages.server }
+  if (error.code === 'ACCOUNT_DISABLED') return { formError: messages.disabled ?? messages.rejected }
   if (error.status === 401 || error.status === 403) return { formError: messages.rejected }
 
   const fieldErrors: Partial<Record<F, string>> = {}
@@ -38,4 +41,17 @@ export function mapAuthError<F extends string>(
   if (Object.keys(fieldErrors).length) return { fieldErrors }
   if (error.status === 409) return { formError: messages.conflict ?? messages.rejected }
   return { formError: messages.rejected }
+}
+
+/** Feedback for a failed "Continue with Google" (no form field to attach it to). */
+export function mapGoogleError(error: unknown): string {
+  if (!isApiError(error)) return UNKNOWN
+  if (error.isNetworkError) return error.message
+  if (error.status === 429) return 'Too many attempts. Please wait a minute and try again.'
+  if (error.code === 'GOOGLE_AUTH_NOT_CONFIGURED' || error.status === 503) {
+    return 'Google sign-in isn’t available right now. Please use your email or mobile number.'
+  }
+  if (error.code === 'ACCOUNT_DISABLED') return 'This account has been disabled. Please contact the studio.'
+  if (error.status >= 500) return 'We couldn’t sign you in right now. Please try again shortly.'
+  return 'We couldn’t verify your Google sign-in. Please try again, or use your email or mobile number.'
 }

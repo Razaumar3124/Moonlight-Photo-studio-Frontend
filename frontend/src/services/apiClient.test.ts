@@ -28,6 +28,10 @@ function lastRequest(fetchMock: FetchMock) {
   return { url: String(url), init: init ?? {}, headers: new Headers(init?.headers) }
 }
 
+const UNAUTHORIZED = { error: { code: 'TOKEN_EXPIRED', message: 'Expired', timestamp: '' } }
+const NEW_TOKENS = { access_token: 'fresh', token_type: 'bearer', expires_in: 900 }
+const isRefresh = (url: unknown) => String(url).endsWith('/auth/refresh')
+
 describe('apiRequest', () => {
   beforeEach(() => vi.useRealTimers())
 
@@ -147,15 +151,15 @@ describe('apiRequest', () => {
     await expect(api.get('/x')).rejects.toMatchObject({ name: 'AbortError' })
   })
 
-  it('on 401 with a session: clears tokens and calls the unauthorized handler once', async () => {
+  it('on 401 with a session whose refresh is rejected: clears tokens, calls the handler once', async () => {
     const { api, fetchMock, setUnauthorizedHandler, tokenStorage } = await setup({
       accessToken: 'tok',
       expiresAt: Date.now() + 60_000,
     })
     const handler = vi.fn<(error: unknown) => void>()
     setUnauthorizedHandler(handler)
-    fetchMock.mockResolvedValueOnce(
-      json(401, { error: { code: 'TOKEN_EXPIRED', message: 'Expired', timestamp: '' } }),
+    fetchMock.mockImplementation(async (url) =>
+      String(url).endsWith('/auth/refresh') ? json(401, UNAUTHORIZED) : json(401, UNAUTHORIZED),
     )
     await expect(api.get('/me')).rejects.toMatchObject({ status: 401 })
     expect(handler).toHaveBeenCalledTimes(1)
@@ -171,6 +175,102 @@ describe('apiRequest', () => {
     )
     await expect(api.post('/auth/login', {})).rejects.toMatchObject({ status: 401 })
     expect(handler).not.toHaveBeenCalled()
+  })
+})
+
+describe('session refresh', () => {
+  const live = { accessToken: 'old', expiresAt: Date.now() + 60_000 }
+
+  it('renews the token on 401 and replays the request once with the new bearer', async () => {
+    const { api, fetchMock, tokenStorage } = await setup(live)
+    fetchMock.mockImplementation(async (url, init) => {
+      if (isRefresh(url)) return json(200, NEW_TOKENS)
+      const auth = new Headers(init?.headers).get('Authorization')
+      return auth === 'Bearer fresh' ? json(200, { ok: true }) : json(401, UNAUTHORIZED)
+    })
+    await expect(api.get('/designs')).resolves.toEqual({ ok: true })
+    expect(tokenStorage.getAccessToken()).toBe('fresh')
+    const calls = fetchMock.mock.calls.map(([url]) => String(url))
+    expect(calls).toEqual(['/api/v1/designs', '/api/v1/auth/refresh', '/api/v1/designs'])
+    // The refresh call carries the CSRF header and the cookie, but no bearer token.
+    const refreshInit = fetchMock.mock.calls[1]?.[1]
+    expect(new Headers(refreshInit?.headers).get('X-CSRF-Protection')).toBe('1')
+    expect(new Headers(refreshInit?.headers).has('Authorization')).toBe(false)
+    expect(refreshInit?.credentials).toBe('include')
+  })
+
+  it('shares one refresh between concurrent 401s (no double rotation)', async () => {
+    const { api, fetchMock } = await setup(live)
+    let refreshes = 0
+    fetchMock.mockImplementation(async (url, init) => {
+      if (isRefresh(url)) {
+        refreshes += 1
+        await new Promise((r) => setTimeout(r, 10))
+        return json(200, NEW_TOKENS)
+      }
+      return new Headers(init?.headers).get('Authorization') === 'Bearer fresh'
+        ? json(200, { ok: true })
+        : json(401, UNAUTHORIZED)
+    })
+    await Promise.all([api.get('/a'), api.get('/b'), api.get('/c')])
+    expect(refreshes).toBe(1)
+  })
+
+  it('renews an already-expired token before sending, so no request is wasted on a 401', async () => {
+    const { api, fetchMock } = await setup({ accessToken: 'old', expiresAt: Date.now() - 1 })
+    fetchMock.mockImplementation(async (url) =>
+      isRefresh(url) ? json(200, NEW_TOKENS) : json(200, { ok: true }),
+    )
+    await api.get('/designs')
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      '/api/v1/auth/refresh',
+      '/api/v1/designs',
+    ])
+    expect(new Headers(fetchMock.mock.calls[1]?.[1]?.headers).get('Authorization')).toBe('Bearer fresh')
+  })
+
+  it('does not loop: a 401 on the replay ends the session', async () => {
+    const { api, fetchMock, setUnauthorizedHandler, tokenStorage } = await setup(live)
+    const handler = vi.fn<(error: unknown) => void>()
+    setUnauthorizedHandler(handler)
+    fetchMock.mockImplementation(async (url) =>
+      isRefresh(url) ? json(200, NEW_TOKENS) : json(401, UNAUTHORIZED),
+    )
+    await expect(api.get('/designs')).rejects.toMatchObject({ status: 401 })
+    expect(fetchMock.mock.calls.filter(([url]) => isRefresh(url))).toHaveLength(1)
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(tokenStorage.hasSession()).toBe(false)
+  })
+
+  it('keeps the session when the refresh fails for network reasons', async () => {
+    const { api, fetchMock, tokenStorage, setUnauthorizedHandler } = await setup(live)
+    const handler = vi.fn<(error: unknown) => void>()
+    setUnauthorizedHandler(handler)
+    fetchMock.mockImplementation(async (url) => {
+      if (isRefresh(url)) throw new TypeError('Failed to fetch')
+      return json(401, UNAUTHORIZED)
+    })
+    await expect(api.get('/designs')).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    expect(handler).not.toHaveBeenCalled()
+    expect(tokenStorage.hasSession()).toBe(true)
+  })
+
+  it('never refreshes for public calls or when no session existed (wrong password)', async () => {
+    const { api, fetchMock } = await setup()
+    fetchMock.mockImplementation(async () => json(401, UNAUTHORIZED))
+    await expect(api.post('/auth/login', {}, { auth: false })).rejects.toMatchObject({ status: 401 })
+    await expect(api.get('/me')).rejects.toMatchObject({ status: 401 })
+    expect(fetchMock.mock.calls.some(([url]) => isRefresh(url))).toBe(false)
+  })
+
+  it('refreshSession reports a rejected cookie as false and stores nothing', async () => {
+    const { refreshSession, fetchMock, tokenStorage } = await setup()
+    fetchMock.mockResolvedValueOnce(json(401, UNAUTHORIZED))
+    await expect(refreshSession()).resolves.toBe(false)
+    expect(tokenStorage.getAccessToken()).toBeNull()
+    fetchMock.mockResolvedValueOnce(json(200, NEW_TOKENS))
+    await expect(refreshSession()).resolves.toBe(true)
+    expect(tokenStorage.getAccessToken()).toBe('fresh')
   })
 })
 

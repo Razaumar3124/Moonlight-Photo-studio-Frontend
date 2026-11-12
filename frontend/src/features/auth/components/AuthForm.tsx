@@ -17,13 +17,17 @@ interface AuthFormProps {
   submitVariant?: Extract<ButtonProps['variant'], 'primary' | 'primary-gradient'>
   /** Tighter spacing for longer forms (Register). */
   compact?: boolean
+  /** "OR" + Continue with Google below the form. Only Login and Register offer it. */
+  showGoogle?: boolean
+  /** Extra content under the primary button (e.g. resend / start over links). */
+  footer?: ReactNode
   /** The fields. */
   children: ReactNode
 }
 
 /**
  * Shared skeleton of the auth forms (mockups): form-level error → fields → primary CTA →
- * "OR" → Continue with Google. Login and Register only provide their fields and labels.
+ * "OR" → Continue with Google. The forms only provide their fields and labels.
  */
 export function AuthForm({
   label,
@@ -34,6 +38,8 @@ export function AuthForm({
   submittingLabel,
   submitVariant = 'primary',
   compact = false,
+  showGoogle = true,
+  footer,
   children,
 }: AuthFormProps) {
   return (
@@ -60,9 +66,14 @@ export function AuthForm({
         </Button>
       </form>
 
-      <Divider label="Or" />
+      {footer}
 
-      <GoogleSignIn />
+      {showGoogle && (
+        <>
+          <Divider label="Or" />
+          <GoogleSignIn />
+        </>
+      )}
     </div>
   )
 }

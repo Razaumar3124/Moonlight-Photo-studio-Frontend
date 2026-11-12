@@ -30,7 +30,7 @@
       placements), `AuthHeader`, `AuthSwitchPrompt`, `GoogleButton`
 - [x] `LoginForm` + `useLoginForm`: single "Mobile No. or Email" field → `{ email }` or `{ phone }` (E.164),
       blur/submit validation, focus-first-invalid, API error → field mapping ready for Phase 5
-- [x] Placeholders: Google (inline "coming soon"), `/forgot-password` page; mock submit → `/memory-wall`
+- [x] Placeholders (replaced in Phase 4): Google, `/forgot-password`, mock submit
 - [x] `short` height variant + `useMediaQuery`; autofill styling
 - [x] Verified in Edge at 320×640, 390×844, 844×390, 768×1024, 1024×768, 1280×720, 1366×768,
       1440×900, 1920×1080, 2560×1440: no horizontal scroll, no overflow on laptops, no console errors
@@ -57,7 +57,7 @@ align="center" titleTone="brand" compact`), register ornaments, register hero
       Mobile (`PhoneField` with fixed `+91`), Password (+ policy hint)
 - [x] `useRegisterForm` on `hooks/useForm`; `registerValidation` (Unicode names, Indian mobile
       normalisation → E.164, assumed password policy); shared `mapAuthError` (login + register; 409 copy)
-- [x] UI only: mock submit → `/memory-wall`; Google button shows "coming soon"
+- [x] UI only (wired to the API in Phase 4)
 - [x] New reusable pieces: `PhoneField`, `Button variant="primary-gradient"`, `AuthHeader compact`
 - [x] Verified: 110 unit tests, 28 register browser checks, login regression (23), no overflow on
       70 page loads (320 → 2560px). Fits without scrolling at 1440×900+; scrolls ~70–140px on
@@ -215,8 +215,28 @@ local fallbacks with live endpoints as the backend resolves API_ALIGNMENT items.
 - [x] 377 backend tests (+52 contract/regression), mutation-checked; 47/47 end-to-end checks
       (plus the Phase 2 smoke, 40/40) on a throwaway local database
 
-## Next: frontend Phase 4 (auth UI wiring) and Phase 5 (planner API integration)
+## Frontend Phase 4: Authentication integration ✅ (2026-11-12)
 
-Phase 4 wires sign-in, registration, Google and password reset to the real endpoints. Phase 5
-loads `GET /catalog`, saves designs through `/designs` (blocking Save while the layout doesn't
+- [x] `AuthProvider` + `useAuth()`: session restore on load (refresh cookie → `/auth/me`), login,
+      register, Google, logout; `ProtectedRoute` / `GuestRoute`; post-login return to the page the
+      visitor came from (validated, no open redirect); "session ended" / "server unreachable" notices
+- [x] `apiClient`: single-flight refresh, replay once on 401, proactive renewal of an expired token;
+      CSRF header and cookie credentials preserved; `services/authService.ts` for the endpoints
+- [x] Login and Register on the real API (mock layer deleted); duplicate-account, validation,
+      rate-limit (429), disabled-account, network and 5xx errors mapped to safe messages
+- [x] Google Identity Services button on Login and Register → `POST /auth/google`; honest fallback
+      when no client ID is configured or the script is blocked; production CSP opens only Google's
+      `gsi` paths when a client ID is set
+- [x] Forgot password: email → 6-digit code (resend cooldown from the server, attempts-left feedback)
+      → new password → sign in with a success notice; nothing stored client-side
+- [x] Planner header shows the signed-in user; Sign out revokes server-side (and reports a failure)
+- [x] Backend security fix: a rotated refresh cookie could mint an access token inside its 30 s grace
+      even after logout or a password reset
+- [x] Frontend tests 181 → 256 (auth UI, session, refresh concurrency, Google, reset flow), backend
+      377 → 379; 49/49 real-browser checks and 38/38 HTTP security checks against a throwaway local
+      database
+
+## Next: frontend Phase 5 (planner API integration)
+
+Phase 5 loads `GET /catalog`, saves designs through `/designs` (blocking Save while the layout doesn't
 fit), uploads photos and sends quotes through `/quotes/prepare`.

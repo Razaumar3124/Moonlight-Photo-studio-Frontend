@@ -8,14 +8,14 @@ import {
   MoreHorizontal,
   UserRound,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import { Logo } from '@/components/brand/Logo'
+import { useToast } from '@/components/feedback/toastContext'
 import { Button } from '@/components/ui/Button'
 import { Menu } from '@/components/ui/Menu'
-import { ROUTES } from '@/config/routes'
+import { useAuth } from '@/features/auth/authContext'
 import { cn } from '@/lib/cn'
 import type { LengthUnit } from '@/lib/units'
-import { tokenStorage } from '@/services/tokenStorage'
+import { isApiError } from '@/services/apiClient'
 import type { Scene } from '../lib/geometry/scene'
 import { FitStatus } from './FitStatus'
 
@@ -190,7 +190,8 @@ export function RequestQuoteButton({
 
 /** Avatar menu: My Designs and Sign out. */
 function ProfileMenu({ onOpenDesigns }: { onOpenDesigns: () => void }) {
-  const navigate = useNavigate()
+  const { user, logout } = useAuth()
+  const toast = useToast()
   return (
     <Menu
       label="Profile"
@@ -209,7 +210,10 @@ function ProfileMenu({ onOpenDesigns }: { onOpenDesigns: () => void }) {
       triggerClassName="flex items-center gap-1 rounded-full p-0.5 transition-colors hover:bg-ivory-200 aria-expanded:bg-ivory-200 sm:pr-1.5"
       header={
         <p className="px-2.5 pt-1.5 pb-2 text-xs text-charcoal-500">
-          Signed in · <span className="font-medium text-charcoal-700">Preview account</span>
+          Signed in as{' '}
+          <span className="block truncate font-medium text-charcoal-700" title={user?.email}>
+            {user?.full_name ?? user?.email ?? 'your account'}
+          </span>
         </p>
       }
       sections={[
@@ -221,10 +225,17 @@ function ProfileMenu({ onOpenDesigns }: { onOpenDesigns: () => void }) {
               id: 'signout',
               icon: <LogOut />,
               label: 'Sign out',
+              // On success the route guard moves to the sign-in page; on failure the session
+              // is still live on the server, so say so instead of pretending to sign out.
               onSelect: () => {
-                // Local sign-out now; Phase 5 also calls POST /auth/logout first.
-                tokenStorage.clear()
-                navigate(ROUTES.login, { replace: true })
+                logout().catch((error: unknown) =>
+                  toast({
+                    tone: 'error',
+                    message: isApiError(error)
+                      ? 'We couldn’t sign you out. Check your connection and try again.'
+                      : 'Something went wrong signing you out. Please try again.',
+                  }),
+                )
               },
             },
           ],
