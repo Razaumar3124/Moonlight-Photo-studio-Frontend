@@ -14,6 +14,7 @@ import { PASSWORD_HINT } from '../lib/registerValidation'
 import {
   CODE_STEP_FIELDS,
   EMAIL_STEP_FIELDS,
+  EMAIL_LIMIT_MESSAGE,
   mapCodeStepError,
   mapEmailStepError,
   mapPasswordStepError,
@@ -179,9 +180,11 @@ function CodeStep({
         text:
           isApiError(error) && error.isNetworkError
             ? error.message
-            : isApiError(error) && error.status === 429
-              ? 'Please wait a little before requesting another code.'
-              : 'We couldn’t send a new code right now. Please try again shortly.',
+            : isApiError(error) && error.code === 'EMAIL_DAILY_LIMIT_REACHED'
+              ? EMAIL_LIMIT_MESSAGE
+              : isApiError(error) && error.status === 429
+                ? 'Please wait a little before requesting another code.'
+                : 'We couldn’t send a new code right now. Please try again shortly.',
       })
     } finally {
       setResending(false)

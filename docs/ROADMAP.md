@@ -276,7 +276,24 @@ Deferred to Phase 6: the quotation / WhatsApp workflow behind "Request a Quote" 
       52/52 real-browser checks and 79/79 HTTP security checks against a throwaway local database;
       WhatsApp mocked (nothing sent)
 
-## Next: Phase 7 (deployment hardening)
+## Backend + frontend Phase 7: free-tier safeguards & configuration cleanup ✅ (2026-11-12)
 
-Real WhatsApp number and PUBLIC_APP_URL, R2 lifecycle rule for expired quote previews, `/q/*` and
-CORS in the hosting setup, monitoring, and anything left from the audits.
+- [x] Resend: shared MongoDB daily counter (atomic), warning at 95, 101st refused, refund on failed
+      sends, identical answers for every address, per-address/per-network daily caps, frontend message
+- [x] R2: 9.7 GB ceiling with atomic reservations and exact releases, maintenance job (retry deletes,
+      expired quote previews, drift reconciliation with compare-and-set), frontend message
+- [x] 2 MB photo limit + 25 MP guard; browser shrinks larger photos (and tells the customer); hint
+      shown on the upload panel
+- [x] Quote previews: JPEG about 1600 px (< 600 KB), 2 MB limit
+- [x] MongoDB: no caps, no pruning; diagnostics show size; TTLs kept
+- [x] `.env` / `.env.example` reduced to credentials and deployment values; fixed limits in
+      `app/core/limits.py`; stricter production start-up validation
+- [x] Groq off by default, sign-in required, shared daily budgets; registration cap per network;
+      health probes cached; protected usage diagnostics
+- [ ] Manual (deployment): R2 lifecycle rule on `quotes/`, provider billing alerts, verified Resend
+      domain, real WhatsApp number and PUBLIC_APP_URL, `TRUSTED_PROXIES`, `/q/*` and CORS in hosting
+
+## Next: deployment
+
+Real WhatsApp number and PUBLIC_APP_URL, `/q/*` and CORS in the hosting setup, monitoring, and
+anything left from the audits.

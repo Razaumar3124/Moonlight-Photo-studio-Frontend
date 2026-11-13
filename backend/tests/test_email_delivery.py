@@ -1,11 +1,4 @@
-"""Tests for Resend Testing Mode integration in the email verification flow.
-
-Verifies:
-1. Recipient restriction to owner@example.com during development.
-2. Graceful error handling for Resend API failures without leaking sensitive credentials.
-3. Configurable test mode flag enabling transition to custom domains.
-4. Complete OTP verification lifecycle.
-"""
+"""Resend delivery: payload, graceful failures without leaking credentials, OTP lifecycle."""
 
 from unittest.mock import patch
 
@@ -15,24 +8,23 @@ import pytest
 from app.core.config import Settings
 from app.core.security import generate_otp, hash_otp, verify_otp_hash
 from app.services.email_service import EmailDeliveryException, EmailService
+from app.services.usage_budget import usage_budget
 
 
 @pytest.fixture
 def test_mode_settings() -> Settings:
-    """Settings with Resend testing mode enabled."""
+    """Settings for the live Resend provider (all HTTP calls are mocked)."""
     return Settings(
         ENVIRONMENT="development",
         SECRET_KEY="test-secret-key-min-32-chars-resend-testing-moonlight",
         EMAIL_PROVIDER="resend",
         RESEND_API_KEY="re_test_dummy_key_not_real",
         RESEND_FROM_EMAIL="Moonlight Photo Studio <onboarding@resend.dev>",
-        RESEND_TEST_MODE=True,
-        RESEND_TEST_RECIPIENT="owner@example.com",
     )
 
 
 @pytest.mark.asyncio
-async def test_resend_testing_mode_permits_allowed_recipient(test_mode_settings: Settings):
+async def test_resend_sends_with_configured_sender(test_mode_settings: Settings):
     """Resend testing mode allows delivery to owner@example.com."""
     service = EmailService()
 
@@ -60,7 +52,7 @@ async def test_resend_testing_mode_permits_allowed_recipient(test_mode_settings:
 
 
 @pytest.mark.asyncio
-async def test_resend_testing_mode_case_insensitive_matching(test_mode_settings: Settings):
+async def test_resend_accepts_mixed_case_recipient(test_mode_settings: Settings):
     """Recipient matching is case-insensitive (e.g. Owner@Example.com)."""
     service = EmailService()
 
@@ -81,32 +73,7 @@ async def test_resend_testing_mode_case_insensitive_matching(test_mode_settings:
 
 
 @pytest.mark.asyncio
-async def test_resend_testing_mode_blocks_unauthorized_recipient(test_mode_settings: Settings):
-    """Resend testing mode blocks non-allowed recipient before calling external API."""
-    service = EmailService()
-
-    with patch("app.services.email_service.get_settings", return_value=test_mode_settings):
-        with patch("httpx.AsyncClient.post") as mock_post:
-            with pytest.raises(EmailDeliveryException) as exc_info:
-                await service.send_otp_email(
-                    to_email="random.customer@example.com",
-                    otp_code="112233",
-                )
-
-            # External API must NOT be called
-            assert not mock_post.called
-
-            # Helpful guidance, but the allowed (developer) inbox is never revealed to clients
-            err_msg = str(exc_info.value.message)
-            assert "owner@example.com" not in err_msg
-            assert "owner@example.com" not in str(exc_info.value.details)
-            assert "testing mode" in err_msg
-            assert "resend.com/domains" in err_msg
-            assert exc_info.value.code == "EMAIL_DELIVERY_FAILED"
-
-
-@pytest.mark.asyncio
-async def test_resend_testing_mode_configurable_toggle():
+async def test_resend_sends_to_any_recipient():
     """Setting RESEND_TEST_MODE=False allows sending to any recipient."""
     prod_settings = Settings(
         ENVIRONMENT="staging",
@@ -114,7 +81,6 @@ async def test_resend_testing_mode_configurable_toggle():
         EMAIL_PROVIDER="resend",
         RESEND_API_KEY="re_test_dummy_key_not_real",
         RESEND_FROM_EMAIL="Moonlight Photo Studio <security@example.com>",
-        RESEND_TEST_MODE=False,
         CORS_ORIGINS=["https://example.com"],
     )
     service = EmailService()
@@ -138,39 +104,24 @@ async def test_resend_testing_mode_configurable_toggle():
 
 
 @pytest.mark.asyncio
-async def test_resend_api_403_testing_error_handled_gracefully(test_mode_settings: Settings):
-    """Resend 403 testing rejection is translated to a clean user-safe message."""
+async def test_resend_api_403_is_translated_to_a_user_safe_message(test_mode_settings: Settings):
+    """A Resend rejection becomes a clean message and gives the daily slot back."""
     service = EmailService()
-
-    resend_403_body = {
-        "statusCode": 403,
-        "name": "validation_error",
-        "message": (
-            "You can only send testing emails to your own email address (owner@example.com). "
-            "To send emails to other recipients, please verify a domain at resend.com/domains, "
-            "and change the `from` address to an email using this domain."
-        ),
-    }
+    body = {"statusCode": 403, "name": "validation_error", "message": "secret provider text"}
 
     with patch("app.services.email_service.get_settings", return_value=test_mode_settings):
         with patch("httpx.AsyncClient.post") as mock_post:
-            mock_resp = httpx.Response(
+            mock_post.return_value = httpx.Response(
                 status_code=403,
-                json=resend_403_body,
+                json=body,
                 request=httpx.Request("POST", "https://api.resend.com/emails"),
             )
-            mock_post.return_value = mock_resp
-
             with pytest.raises(EmailDeliveryException) as exc_info:
-                await service.send_otp_email(
-                    to_email="owner@example.com",
-                    otp_code="123456",
-                )
+                await service.send_otp_email(to_email="owner@example.com", otp_code="123456")
 
-            assert "testing mode" in exc_info.value.message.lower()
-            assert "resend.com/domains" in exc_info.value.message.lower()
-            # Must not expose raw API key or internal structures
-            assert "re_" not in exc_info.value.message
+    assert "secret provider text" not in exc_info.value.message
+    assert "re_" not in exc_info.value.message
+    assert (await usage_budget.email_usage())["used"] == 0  # nothing was sent: slot returned
 
 
 @pytest.mark.asyncio

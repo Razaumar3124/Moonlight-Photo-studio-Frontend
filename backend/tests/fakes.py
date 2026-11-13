@@ -531,6 +531,16 @@ class FakePhotoRepository:
         doc["updated_at"] = datetime.now(UTC)
         return True
 
+    async def set_purge_pending(self, photo_id: str, refs: list[dict]) -> None:
+        doc = self.photos.get(str(photo_id))
+        if doc is not None:
+            doc["purge_pending"] = refs
+
+    async def list_purge_pending(self, limit: int = 100):
+        from app.models.photo import PhotoInDB
+
+        return [PhotoInDB(**d) for d in self.photos.values() if d.get("purge_pending")][:limit]
+
     async def hard_delete(self, photo_id: str) -> bool:
         return self.photos.pop(str(photo_id), None) is not None
 
@@ -543,6 +553,9 @@ class FakeR2Storage:
         self.bucket_name = "moonlight-studio-photos-test"
         self.should_fail_upload = False
         self.should_fail_download = False
+        self.fail_delete_keys: set[str] = set()
+        self.fail_upload_after: int | None = None  # fail the put once this many succeeded
+        self.modified: dict[str, datetime] = {}
 
     async def put_object(
         self,
@@ -556,7 +569,11 @@ class FakeR2Storage:
         if self.should_fail_upload:
             raise StorageUnavailableException(issue="Simulated R2 network failure on upload")
 
+        if self.fail_upload_after is not None and len(self.objects) >= self.fail_upload_after:
+            raise StorageUnavailableException(issue="Simulated R2 failure after partial upload")
+
         self.objects[key] = (data, content_type, metadata or {})
+        self.modified[key] = datetime.now(UTC)
         return key
 
     async def get_object(self, key: str) -> tuple[bytes, str]:
@@ -577,11 +594,29 @@ class FakeR2Storage:
         return data, c_type
 
     async def delete_object(self, key: str) -> bool:
+        if key in self.fail_delete_keys:
+            return False
+        self.modified.pop(key, None)
         return self.objects.pop(key, None) is not None
 
-    async def delete_objects(self, keys: list[str]) -> None:
+    async def delete_objects(self, keys: list[str]) -> list[str]:
+        gone: list[str] = []
         for k in keys:
+            if k in self.fail_delete_keys:
+                continue
             self.objects.pop(k, None)
+            self.modified.pop(k, None)
+            gone.append(k)
+        return gone
+
+    async def list_objects(self, prefix: str = ""):
+        from app.storage.types import StoredObject
+
+        return [
+            StoredObject(k, len(v[0]), self.modified.get(k, datetime.now(UTC)))
+            for k, v in self.objects.items()
+            if k.startswith(prefix)
+        ]
 
     async def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
         return (
@@ -754,6 +789,17 @@ class FakeQuoteRepository:
 
     async def create_indexes(self) -> None:
         pass
+
+    async def has_active_quote_for_preview(self, preview_key: str) -> bool:
+        now = datetime.now(UTC)
+        for doc in self.quotes.values():
+            exp = doc.get("expires_at")
+            if doc.get("preview_image_key") == preview_key and exp is not None:
+                if exp.tzinfo is None:
+                    exp = exp.replace(tzinfo=UTC)
+                if exp > now:
+                    return True
+        return False
 
     async def get_next_quote_reference(self) -> str:
         self.seq_counter += 1

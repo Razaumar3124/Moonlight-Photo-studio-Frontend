@@ -243,6 +243,18 @@ class RateLimitExceededException(AppException):
         self.retry_after_seconds = retry_after_seconds
 
 
+class RegistrationLimitException(RateLimitExceededException):
+    """Raised when one network has created its daily allowance of new accounts."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(
+            "Too many accounts were created from your network today. Please try again "
+            "tomorrow or contact the studio.",
+            retry_after_seconds=retry_after_seconds,
+        )
+        self.code = "REGISTRATION_LIMIT_REACHED"
+
+
 class ForbiddenException(AppException):
     """Raised when an authenticated user attempts to access or mutate an unowned resource."""
 
@@ -274,4 +286,36 @@ class StorageUnavailableException(AppException):
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             details=[{"field": "storage", "issue": "Storage is temporarily unavailable"}],
             internal_detail=issue,
+        )
+
+
+class StorageLimitReachedException(AppException):
+    """Raised when accepting an upload would push stored data past the free-tier ceiling."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message=(
+                "Photo storage is full right now, so we can't accept new uploads. "
+                "Please contact the studio."
+            ),
+            code="STORAGE_LIMIT_REACHED",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details=[{"field": "storage", "issue": "Storage capacity reached"}],
+            headers={"Retry-After": "3600"},
+        )
+
+
+class EmailLimitReachedException(AppException):
+    """Raised when today's email allowance is used up (same answer for every address)."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            message=(
+                "Password reset emails are unavailable right now because the daily sending "
+                "limit was reached. Please try again tomorrow or contact the studio."
+            ),
+            code="EMAIL_DAILY_LIMIT_REACHED",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            details=[{"field": "email", "issue": "Daily email limit reached"}],
+            headers={"Retry-After": "3600"},
         )

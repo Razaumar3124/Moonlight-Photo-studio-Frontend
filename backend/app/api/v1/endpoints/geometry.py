@@ -11,6 +11,7 @@ from app.api.dependencies import (
     OptionalCurrentUserDep,
     RedesignServiceDep,
 )
+from app.core.exceptions import InvalidTokenException
 from app.core.security import get_client_ip
 from app.schemas.geometry import (
     GenerateLayoutRequest,
@@ -24,6 +25,12 @@ from app.schemas.geometry import (
 )
 
 router = APIRouter(prefix="/geometry", tags=["Geometry & Layout Engine"])
+
+
+def _require_login_for_ai(engine_mode: str, current_user: object | None) -> None:
+    """AI (Groq) layouts use a metered free-tier service: only signed-in users may trigger them."""
+    if engine_mode == "smart_llm" and current_user is None:
+        raise InvalidTokenException("Please sign in to use AI layout suggestions.")
 
 
 @router.post(
@@ -61,6 +68,7 @@ async def generate_layout(
     current_user: OptionalCurrentUserDep,
 ) -> GenerateLayoutResponse:
     """EP-GEO-02: Generate optimal gallery wall arrangement."""
+    _require_login_for_ai(req.engine_mode, current_user)
     client_ip = get_client_ip(http_request) or "anonymous"
     caller_id = str(current_user.id) if current_user else client_ip
     user_id = str(current_user.id) if current_user else None
@@ -112,6 +120,7 @@ async def redesign_layout(
     current_user: OptionalCurrentUserDep,
 ) -> RedesignLayoutResponse:
     """Redesign layout with new compositional archetype."""
+    _require_login_for_ai(req.engine_mode, current_user)
     client_ip = get_client_ip(http_request) or "anonymous"
     caller_id = str(current_user.id) if current_user else client_ip
     user_id = str(current_user.id) if current_user else None

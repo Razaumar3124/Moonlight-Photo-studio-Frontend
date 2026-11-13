@@ -102,6 +102,7 @@ export function GoogleSignIn() {
         shape: 'rectangular',
         logo_alignment: 'left',
         width,
+        locale: 'en',
       })
     }
     draw()

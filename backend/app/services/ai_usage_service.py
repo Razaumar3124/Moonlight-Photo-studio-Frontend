@@ -1,83 +1,50 @@
 """AI Usage & Budget Service.
 
-Tracks and enforces per-user and global daily request limits and token budgets
-to guarantee that free-tier and provisioned Groq rate limits are never exceeded.
+Enforces the Groq free-tier allowance: a daily request cap per user and, shared by every user and
+worker, a daily request cap and token budget. Counters live in ``usage_budget`` (MongoDB in
+production), and a request slot is claimed *before* Groq is called, so concurrent callers cannot
+exceed the allowance.
 """
 
 import logging
-from collections import defaultdict
-from datetime import UTC, datetime
 
+from app.core import limits
 from app.core.config import Settings
+from app.services.usage_budget import usage_budget, utc_day
 
 logger = logging.getLogger("moonlight_studio.ai_usage")
 
 
 class AIUsageService:
-    """In-memory rate, request, and token budget manager for Groq AI inference."""
+    """Shared request and token budget manager for Groq AI inference."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        # date_str -> user_id -> request_count
-        self._user_daily_requests: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-        # date_str -> total_tokens
-        self._global_daily_tokens: dict[str, int] = defaultdict(int)
 
-    @staticmethod
-    def _today_key() -> str:
-        return datetime.now(UTC).strftime("%Y-%m-%d")
-
-    def _prune(self, today: str) -> None:
-        """Drop counters from previous days so memory stays bounded to one day of callers.
-
-        Counters are per process: with several workers the effective budget is per worker.
-        """
-        for day in [d for d in self._user_daily_requests if d != today]:
-            del self._user_daily_requests[day]
-        for day in [d for d in self._global_daily_tokens if d != today]:
-            del self._global_daily_tokens[day]
-
-    def can_make_request(self, user_or_ip: str) -> bool:
-        """Verify whether the caller is within daily request limits and global token budgets."""
-        today = self._today_key()
-        self._prune(today)
-
-        # Check global application token budget (.get: checking must not create entries)
-        if self._global_daily_tokens.get(today, 0) >= self.settings.GROQ_DAILY_TOKEN_BUDGET:
-            logger.warning(
-                "Daily global AI token budget reached (%s/%s). Disabling AI inference for today.",
-                self._global_daily_tokens[today],
-                self.settings.GROQ_DAILY_TOKEN_BUDGET,
-            )
+    async def can_make_request(self, user_id: str) -> bool:
+        """Claim one AI request for ``user_id``; False when any daily allowance is used up."""
+        if not (self.settings.GROQ_ENABLED and self.settings.GROQ_API_KEY.strip()):
+            return False  # AI is off: no slot is spent, callers fall back to the geometry engine
+        if await usage_budget.groq_tokens_exhausted():
+            logger.warning("Daily AI token budget reached; AI inference is off until tomorrow.")
             return False
-
-        # Check caller request count limit
-        current_reqs = self._user_daily_requests.get(today, {}).get(user_or_ip, 0)
-        if current_reqs >= self.settings.GROQ_DAILY_REQUEST_LIMIT:
-            logger.warning(
-                "Caller '%s' exceeded daily AI request limit (%s/%s).",
-                user_or_ip,
-                current_reqs,
-                self.settings.GROQ_DAILY_REQUEST_LIMIT,
-            )
+        user_key = f"groq_user:{utc_day()}:{user_id}"
+        store = usage_budget.store()
+        ok, _ = await store.reserve(user_key, 1, limits.GROQ_DAILY_REQUESTS_PER_USER)
+        if not ok:
+            logger.warning("A caller exceeded the daily AI request limit.")
             return False
-
+        if not await usage_budget.reserve_groq_request():
+            await store.release(user_key, 1)
+            logger.warning("Daily shared AI request limit reached.")
+            return False
         return True
 
-    def record_usage(self, user_or_ip: str, tokens_used: int) -> None:
-        """Record successful AI inference request and token consumption."""
-        today = self._today_key()
-        self._prune(today)
-        self._user_daily_requests[today][user_or_ip] += 1
-        self._global_daily_tokens[today] += max(0, tokens_used)
-        logger.info(
-            "AI Usage recorded for '%s': +%s tokens. Total today: %s tokens.",
-            user_or_ip,
-            tokens_used,
-            self._global_daily_tokens[today],
-        )
+    async def record_usage(self, user_id: str, tokens_used: int) -> None:
+        """Add the tokens a successful call used to today's shared total."""
+        await usage_budget.add_groq_tokens(tokens_used)
+        logger.info("AI usage recorded: +%s tokens.", tokens_used)
 
     def clear(self) -> None:
-        """Reset usage metrics (useful in unit tests)."""
-        self._user_daily_requests.clear()
-        self._global_daily_tokens.clear()
+        """Reset usage metrics (unit tests)."""
+        usage_budget.clear_all()

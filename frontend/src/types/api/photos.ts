@@ -1,7 +1,7 @@
 /** Contract §5 — Photo Management. */
 import type { EntityId, ISODateTime } from './common'
 
-/** POST /photos/upload (multipart, field `file`; JPEG/PNG/WebP, ≤ 25 MB) → 201 */
+/** POST /photos/upload (multipart, field `file`; JPEG/PNG/WebP, ≤ 2 MB) → 201 */
 export interface Photo {
   id: EntityId
   user_id: EntityId

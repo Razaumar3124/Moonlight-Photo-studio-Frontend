@@ -500,32 +500,30 @@ async def test_streamed_oversized_body_rejected(client: AsyncClient):
     assert res.json()["error"]["code"] == "PAYLOAD_TOO_LARGE"
 
 
-async def test_oversized_photo_rejected_at_both_layers(client: AsyncClient, settings_env):
-    settings_env(R2_MAX_UPLOAD_MB=1)
+async def test_oversized_photo_rejected_at_both_layers(client: AsyncClient):
     _, token = await register_test_user(client, "big.photo@example.com")
     auth = {"Authorization": f"Bearer {token}"}
 
     huge = await client.post(
-        f"{API}/photos/upload", headers=auth, files={"file": ("a.jpg", b"\xff" * 1_500_000)}
+        f"{API}/photos/upload", headers=auth, files={"file": ("a.jpg", b"\xff" * 2_700_000)}
     )
     just_over = await client.post(
         f"{API}/photos/upload",
         headers=auth,
-        files={"file": ("b.jpg", b"\xff" * (1024 * 1024 + 20_000))},
+        files={"file": ("b.jpg", b"\xff" * (2 * 1024 * 1024 + 20_000))},
     )
     assert huge.status_code == 413  # streaming guard (whole body over the limit)
-    assert just_over.status_code == 413  # endpoint check (file over 1 MB, body under cap)
+    assert just_over.status_code == 413  # endpoint check (file over 2 MB, body under cap)
     assert just_over.json()["error"]["details"][0]["field"] == "file"
 
 
-async def test_oversized_quote_preview_rejected(client: AsyncClient, settings_env):
-    settings_env(QUOTE_PREVIEW_MAX_MB=1)
+async def test_oversized_quote_preview_rejected(client: AsyncClient):
     _, token = await register_test_user(client, "big.quote@example.com")
     res = await client.post(
         f"{API}/quotes/prepare",
         headers={"Authorization": f"Bearer {token}"},
         data={"design_data": json.dumps(make_valid_design_payload())},
-        files={"file": ("p.png", b"\x89PNG" + b"0" * (1024 * 1024 + 20_000), "image/png")},
+        files={"file": ("p.png", b"\x89PNG" + b"0" * (2 * 1024 * 1024 + 20_000), "image/png")},
     )
     assert res.status_code == 413
 

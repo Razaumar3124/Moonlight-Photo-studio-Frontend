@@ -12,6 +12,7 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core import limits
 from app.core.config import Settings
 
 logger = logging.getLogger("moonlight_studio.groq_client")
@@ -105,14 +106,14 @@ class GroqClient:
         )
 
         request_body = {
-            "model": self.settings.GROQ_MODEL,
+            "model": limits.GROQ_MODEL,
             "messages": [
                 {"role": "system", "content": system_instruction},
                 {"role": "user", "content": user_content},
             ],
             "response_format": {"type": "json_object"},
             "temperature": 0.7 if is_redesign else 0.2,
-            "max_tokens": self.settings.GROQ_MAX_OUTPUT_TOKENS,
+            "max_tokens": limits.GROQ_MAX_OUTPUT_TOKENS,
         }
 
         headers = {
@@ -120,7 +121,7 @@ class GroqClient:
             "Content-Type": "application/json",
         }
 
-        timeout = httpx.Timeout(self.settings.GROQ_TIMEOUT_SECONDS)
+        timeout = httpx.Timeout(limits.GROQ_TIMEOUT_SECONDS)
 
         try:
             if self._client:
@@ -170,7 +171,7 @@ class GroqClient:
         except httpx.TimeoutException:
             logger.warning(
                 "Groq request timed out after %ss. Falling back to geometry.",
-                self.settings.GROQ_TIMEOUT_SECONDS,
+                limits.GROQ_TIMEOUT_SECONDS,
             )
             return None, 0
         except Exception as exc:
@@ -185,7 +186,7 @@ class GroqClient:
             return {
                 "status": "disabled",
                 "enabled": False,
-                "model": self.settings.GROQ_MODEL,
+                "model": limits.GROQ_MODEL,
             }
 
         api_key = self.settings.GROQ_API_KEY.strip()
@@ -193,7 +194,7 @@ class GroqClient:
             return {
                 "status": "misconfigured",
                 "enabled": True,
-                "model": self.settings.GROQ_MODEL,
+                "model": limits.GROQ_MODEL,
                 "issue": "GROQ_API_KEY is not set",
             }
 
@@ -217,13 +218,13 @@ class GroqClient:
                 return {
                     "status": "ready",
                     "enabled": True,
-                    "model": self.settings.GROQ_MODEL,
+                    "model": limits.GROQ_MODEL,
                     "latency_ms": latency,
                 }
             return {
                 "status": "degraded",
                 "enabled": True,
-                "model": self.settings.GROQ_MODEL,
+                "model": limits.GROQ_MODEL,
                 "issue": f"Groq API returned HTTP {resp.status_code}",
                 "latency_ms": latency,
             }
@@ -231,6 +232,6 @@ class GroqClient:
             return {
                 "status": "unreachable",
                 "enabled": True,
-                "model": self.settings.GROQ_MODEL,
+                "model": limits.GROQ_MODEL,
                 "issue": str(exc),
             }

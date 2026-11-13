@@ -176,18 +176,46 @@ describe('upload', () => {
       ok: false,
       error: 'Please choose a JPEG, PNG or WebP photo.',
     })
-    expect((await result.current.upload(file('big.jpg', 'image/jpeg', 25 * 1024 * 1024 + 1))).ok).toBe(false)
+    expect(await result.current.upload(file('big.jpg', 'image/jpeg', 41 * 1024 * 1024))).toMatchObject({
+      ok: false,
+      error: expect.stringMatching(/too large to prepare/),
+    })
     dims = { w: 200, h: 5000 }
     expect(await result.current.upload(file('thin.jpg'))).toMatchObject({
       ok: false,
       error: expect.stringMatching(/too small/),
     })
-    dims = { w: 9000, h: 3000 }
-    expect(await result.current.upload(file('huge.jpg', 'image/jpeg', 1000, 2))).toMatchObject({
-      ok: false,
-      error: expect.stringMatching(/too large/),
-    })
     expect(svc.upload).not.toHaveBeenCalled()
+  })
+
+  it('sends a photo under 2 MB as it is, with no notice', async () => {
+    const { result } = await ready()
+    svc.upload.mockResolvedValue(uploaded(A))
+    const small = file('small.jpg', 'image/jpeg', 1.5 * 1024 * 1024)
+    const outcome = await result.current.upload(small)
+    expect(outcome).toMatchObject({ ok: true })
+    expect(outcome.ok && outcome.notice).toBeFalsy()
+    expect(svc.upload.mock.calls[0]?.[0]).toBe(small)
+  })
+
+  it('shrinks a photo over 2 MB before upload and tells the customer', async () => {
+    const { result } = await ready()
+    svc.upload.mockResolvedValue(uploaded(A))
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      fillRect: () => undefined,
+      drawImage: () => undefined,
+    } as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((cb, type) =>
+      cb(new Blob([new Uint8Array(1_000_000)], { type })),
+    )
+    const big = file('IMG_0001.HEIC.jpg', 'image/jpeg', 5 * 1024 * 1024)
+    const outcome = await result.current.upload(big)
+    expect(outcome).toMatchObject({ ok: true, notice: expect.stringMatching(/5\.0 MB.*optimised.*977 KB/) })
+    const sent = svc.upload.mock.calls[0]?.[0] as File
+    expect(sent).not.toBe(big)
+    expect(sent.size).toBeLessThanOrEqual(2 * 1024 * 1024)
+    expect(sent.type).toBe('image/jpeg')
+    vi.restoreAllMocks()
   })
 
   it('uploads, reports progress, adds the photo to the library and returns the frame reference', async () => {
@@ -255,7 +283,8 @@ describe('upload', () => {
   it.each([
     [new ApiError({ status: 0, code: 'NETWORK_ERROR', message: 'x' }), /offline/],
     [new ApiError({ status: 429, code: 'RATE_LIMIT_EXCEEDED', message: 'x' }), /wait a little/],
-    [new ApiError({ status: 413, code: 'PAYLOAD_TOO_LARGE', message: 'x' }), /25 MB/],
+    [new ApiError({ status: 413, code: 'PAYLOAD_TOO_LARGE', message: 'x' }), /larger than 2 MB/],
+    [new ApiError({ status: 503, code: 'STORAGE_LIMIT_REACHED', message: 'x' }), /storage is full/],
     [
       new ApiError({
         status: 422,

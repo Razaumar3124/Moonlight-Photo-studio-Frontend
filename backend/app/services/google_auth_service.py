@@ -10,12 +10,14 @@ from app.core.exceptions import (
     AccountDisabledException,
     GoogleAuthNotConfiguredException,
     InvalidGoogleTokenException,
+    RegistrationLimitException,
 )
 from app.models.user import UserInDB
 from app.repositories.user_repository import UserRepository
 from app.schemas.auth import AuthResponse, AuthResult
 from app.schemas.user import UserOut
 from app.services.token_service import TokenService
+from app.services.usage_budget import seconds_until_utc_midnight, usage_budget
 
 logger = logging.getLogger("moonlight_studio.google_auth")
 
@@ -89,6 +91,8 @@ class GoogleAuthService:
 
         # 3. If user still does not exist, create new Google user
         if not user:
+            if not await usage_budget.reserve_registration(ip_address):
+                raise RegistrationLimitException(seconds_until_utc_midnight())
             now = datetime.now(UTC)
             new_user = UserInDB(
                 _id=str(ObjectId()),
@@ -103,7 +107,11 @@ class GoogleAuthService:
                 created_at=now,
                 updated_at=now,
             )
-            user = await self.user_repo.create(new_user)
+            try:
+                user = await self.user_repo.create(new_user)
+            except Exception:
+                await usage_budget.release_registration(ip_address)
+                raise
             logger.info("Registered new user via Google identity: user_id=%s", user.id)
 
         # Check account status

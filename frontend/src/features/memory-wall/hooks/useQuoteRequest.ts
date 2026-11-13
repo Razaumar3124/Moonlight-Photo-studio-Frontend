@@ -21,8 +21,14 @@ export interface QuoteResult {
   reportUrl: string
 }
 
-/** The quote preview must stay under the API's 15 MB limit; a PNG of the wall is far below it. */
-const MAX_PREVIEW_BYTES = 12 * 1024 * 1024
+/**
+ * The quote preview is stored for 30 days, so it is kept small: a JPEG about 1600 px wide,
+ * aiming under 600 KB. The API accepts at most 2 MB; this ceiling keeps a safe margin.
+ */
+export const PREVIEW_WIDTH_PX = 1600
+export const PREVIEW_TARGET_BYTES = 600 * 1024
+export const MAX_PREVIEW_BYTES = 1900 * 1024
+const PREVIEW_QUALITIES = [0.85, 0.72, 0.6, 0.48] as const
 
 interface Attempt {
   /** Content the attempt belongs to: any change to the design starts a new one. */
@@ -127,11 +133,17 @@ export function useQuoteRequest(deps: QuoteRequestDeps) {
         const svg = svgRef.current
         if (!svg) throw new Error('The wall is not on screen')
         const options = { title, unit: state.displayUnit, guides: true } as const
-        let blob = await renderWallImage(svg, scene, { ...options, format: 'image/png' })
-        if (blob.size > MAX_PREVIEW_BYTES) {
-          blob = await renderWallImage(svg, scene, { ...options, format: 'image/webp' })
+        let blob: Blob | null = null
+        for (const quality of PREVIEW_QUALITIES) {
+          blob = await renderWallImage(svg, scene, {
+            ...options,
+            format: 'image/jpeg',
+            width: PREVIEW_WIDTH_PX,
+            quality,
+          })
+          if (blob.size <= PREVIEW_TARGET_BYTES) break
         }
-        if (blob.size > MAX_PREVIEW_BYTES) throw new Error('The preview image is too large')
+        if (!blob || blob.size > MAX_PREVIEW_BYTES) throw new Error('The preview image is too large')
         current.preview = blob
       }
 

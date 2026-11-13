@@ -73,6 +73,18 @@ describe('error mapping never shows raw server text', () => {
     ).toEqual({ fieldErrors: { password: 'Too common' } })
   })
 
+  it('says clearly when the daily email allowance is used up, and still treats other 503s as a failure', () => {
+    expect(mapEmailStepError(apiError(503, 'EMAIL_DAILY_LIMIT_REACHED')).formError).toMatch(
+      /daily sending limit was reached.*tomorrow/,
+    )
+    expect(mapEmailStepError(apiError(503, 'EMAIL_DELIVERY_FAILED')).formError).toMatch(
+      /couldn’t send a code right now/,
+    )
+    expect(mapEmailStepError(apiError(503, 'EMAIL_DAILY_LIMIT_REACHED')).formError).not.toMatch(
+      /raw server text/,
+    )
+  })
+
   it('unknown thrown values get a neutral message', () => {
     expect(mapEmailStepError(new Error('boom')).formError).toBe('Something went wrong. Please try again.')
     expect(mapGoogleError('boom')).toBe('Something went wrong. Please try again.')

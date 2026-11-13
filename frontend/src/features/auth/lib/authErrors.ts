@@ -10,6 +10,8 @@ export interface AuthErrorMessages {
   conflict?: string
   /** 403 ACCOUNT_DISABLED (the API only says so after a correct password). Defaults to `rejected`. */
   disabled?: string
+  /** Messages for specific API error codes (checked before the status-based ones). */
+  byCode?: Record<string, string>
 }
 
 const UNKNOWN = 'Something went wrong. Please try again.'
@@ -28,6 +30,8 @@ export function mapAuthError<F extends string>(
 ): SubmitErrorResult<F> {
   if (!isApiError(error)) return { formError: UNKNOWN }
   if (error.isNetworkError) return { formError: error.message }
+  const coded = messages.byCode?.[error.code]
+  if (coded) return { formError: coded }
   if (error.status === 429) return { formError: messages.rateLimited }
   if (error.status >= 500) return { formError: messages.server }
   if (error.code === 'ACCOUNT_DISABLED') return { formError: messages.disabled ?? messages.rejected }
@@ -47,6 +51,9 @@ export function mapAuthError<F extends string>(
 export function mapGoogleError(error: unknown): string {
   if (!isApiError(error)) return UNKNOWN
   if (error.isNetworkError) return error.message
+  if (error.code === 'REGISTRATION_LIMIT_REACHED') {
+    return 'Too many accounts were created from your network today. Please try again tomorrow or contact the studio.'
+  }
   if (error.status === 429) return 'Too many attempts. Please wait a minute and try again.'
   if (error.code === 'GOOGLE_AUTH_NOT_CONFIGURED' || error.status === 503) {
     return 'Google sign-in isn’t available right now. Please use your email or mobile number.'

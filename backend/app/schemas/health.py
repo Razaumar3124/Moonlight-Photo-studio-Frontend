@@ -124,6 +124,52 @@ class HealthComponentsStatus(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class EmailUsageStatus(BaseModel):
+    """Today's use of the Resend daily email allowance (UTC day)."""
+
+    day_utc: str
+    used: int
+    limit: int
+    warn_at: int
+    remaining: int
+    status: Literal["ok", "warning", "exhausted"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StorageUsageStatus(BaseModel):
+    """Bytes counted against the object-storage ceiling."""
+
+    used_bytes: int
+    limit_bytes: int
+    percent: float
+    status: Literal["ok", "warning", "exhausted"]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class DatabaseUsageStatus(BaseModel):
+    """MongoDB database size as reported by the server (cached, informational)."""
+
+    data_size_bytes: int | None = None
+    storage_size_bytes: int | None = None
+    collections: int | None = None
+    objects: int | None = None
+    issue: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class UsageDiagnostics(BaseModel):
+    """Free-tier consumption, for the protected diagnostics endpoint only."""
+
+    email: EmailUsageStatus | None = None
+    storage: StorageUsageStatus | None = None
+    database: DatabaseUsageStatus | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class HealthReadyResponse(BaseModel):
     """Response schema for GET /api/v1/health/ready (public, minimal: MongoDB only)."""
 
@@ -185,6 +231,10 @@ class HealthSystemResponse(BaseModel):
     components: HealthComponentsStatus = Field(
         ...,
         description="Health status breakdown per subsystem",
+    )
+    usage: UsageDiagnostics | None = Field(
+        default=None,
+        description="Free-tier usage (emails today, stored bytes, database size)",
     )
     timestamp: str = Field(
         default_factory=lambda: datetime.now(UTC).isoformat(),

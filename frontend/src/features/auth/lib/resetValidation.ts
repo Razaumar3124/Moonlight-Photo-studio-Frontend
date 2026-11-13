@@ -24,6 +24,10 @@ export function validateEmailStep(_field: EmailStepField, value: string): string
   return undefined
 }
 
+/** The studio's daily email allowance is used up (the API answers 503 for every address). */
+export const EMAIL_LIMIT_MESSAGE =
+  'Password reset emails are unavailable right now because the daily sending limit was reached. Please try again tomorrow or contact the studio.'
+
 export function mapEmailStepError(error: unknown): SubmitErrorResult<EmailStepField> {
   return mapAuthError(
     error,
@@ -32,6 +36,7 @@ export function mapEmailStepError(error: unknown): SubmitErrorResult<EmailStepFi
       rejected: 'We couldn’t send a code. Check the email address and try again.',
       rateLimited: 'Too many requests. Please wait a minute before asking for another code.',
       server: 'We couldn’t send a code right now. Please try again shortly.',
+      byCode: { EMAIL_DAILY_LIMIT_REACHED: EMAIL_LIMIT_MESSAGE },
     },
   )
 }

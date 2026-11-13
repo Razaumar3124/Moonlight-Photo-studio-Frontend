@@ -2,9 +2,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { isApiError } from '@/services/apiClient'
 import { photosService } from '@/services/photosService'
 import type { PhotoRef } from '../lib/plannerState'
+import { formatBytes, preparePhotoForUpload } from '../lib/photoCompress'
 import {
-  checkPhotoDimensions,
   checkPhotoFile,
+  PHOTO_TOO_LARGE_MESSAGE,
+  STORAGE_FULL_MESSAGE,
   toLibraryPhoto,
   toPhotoRef,
   URL_REFRESH_MARGIN_MS,
@@ -14,7 +16,14 @@ import {
 export type LibraryStatus = 'loading' | 'ready' | 'error'
 
 export type UploadResult =
-  { ok: true; photo: Extract<PhotoRef, { kind: 'upload' }>; reused: boolean } | { ok: false; error: string }
+  | {
+      ok: true
+      photo: Extract<PhotoRef, { kind: 'upload' }>
+      reused: boolean
+      /** Set when the photo was shrunk to fit the 2 MB limit, e.g. "Your photo was 4.1 MB…". */
+      notice?: string
+    }
+  | { ok: false; error: string }
 
 export type RemoveResult = { ok: true } | { ok: false; error: string; inUse: boolean }
 
@@ -43,25 +52,12 @@ const BROKEN_REFRESH_COOLDOWN_MS = 15 * 1000
 /** Per-session duplicate detection key. */
 const fingerprint = (file: File) => `${file.name}\u0000${file.size}\u0000${file.lastModified}`
 
-async function decodeDimensions(file: File): Promise<{ widthPx: number; heightPx: number } | null> {
-  const url = URL.createObjectURL(file)
-  try {
-    const img = new Image()
-    img.src = url
-    await img.decode()
-    return { widthPx: img.naturalWidth, heightPx: img.naturalHeight }
-  } catch {
-    return null
-  } finally {
-    URL.revokeObjectURL(url)
-  }
-}
-
 function uploadErrorMessage(error: unknown): string {
   if (!isApiError(error)) return 'We couldn’t upload that photo. Please try again.'
   if (error.isNetworkError) return 'You appear to be offline. Check your connection and try again.'
   if (error.status === 429) return 'You’ve uploaded a lot of photos. Please wait a little before adding more.'
-  if (error.status === 413) return 'That photo is larger than 25 MB. Please choose a smaller file.'
+  if (error.status === 413) return PHOTO_TOO_LARGE_MESSAGE
+  if (error.code === 'STORAGE_LIMIT_REACHED') return STORAGE_FULL_MESSAGE
   if (error.status === 422 || error.status === 400) {
     // The API's own wording for file problems is user-safe (size, format, pixel limits).
     return error.details[0]?.issue || error.message || 'That photo can’t be used. Please choose another.'
@@ -167,17 +163,11 @@ export function usePhotoLibrary(): PhotoLibrary {
       const task = (async (): Promise<UploadResult> => {
         const problem = checkPhotoFile(file)
         if (problem) return { ok: false, error: problem }
-        const dims = await decodeDimensions(file)
-        if (!dims) {
-          return {
-            ok: false,
-            error: 'We couldn’t read that image. It may be damaged or in an unsupported format.',
-          }
-        }
-        const dimProblem = checkPhotoDimensions(dims.widthPx, dims.heightPx)
-        if (dimProblem) return { ok: false, error: dimProblem }
+        // Under the 2 MB limit and a sensible size: sent as is. Otherwise shrunk right here.
+        const prepared = await preparePhotoForUpload(file)
+        if (!prepared.ok) return { ok: false, error: prepared.error }
         try {
-          const photo = await photosService.upload(file, {
+          const photo = await photosService.upload(prepared.photo.file, {
             onProgress: handlers?.onProgress,
             signal: abort.current.signal,
           })
@@ -187,7 +177,15 @@ export function usePhotoLibrary(): PhotoLibrary {
             setPhotos((list) => [summary, ...list.filter((p) => p.id !== summary.id)])
             setStatus('ready')
           }
-          return { ok: true, photo: toPhotoRef(summary), reused: false }
+          const { optimized, originalBytes, file: sent } = prepared.photo
+          return {
+            ok: true,
+            photo: toPhotoRef(summary),
+            reused: false,
+            notice: optimized
+              ? `Your photo was ${formatBytes(originalBytes)}, so we optimised it to ${formatBytes(sent.size)}.`
+              : undefined,
+          }
         } catch (error) {
           if (error instanceof DOMException && error.name === 'AbortError') {
             return { ok: false, error: 'Upload cancelled.' }

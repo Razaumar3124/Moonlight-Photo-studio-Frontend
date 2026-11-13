@@ -90,8 +90,8 @@ describe('toRegisterRequest', () => {
 })
 
 describe('mapRegisterError', () => {
-  const apiError = (status: number, details: { field: string; issue: string }[] = []) =>
-    new ApiError({ status, code: 'X', message: 'server text', details })
+  const apiError = (status: number, details: { field: string; issue: string }[] = [], code = 'X') =>
+    new ApiError({ status, code, message: 'server text', details })
 
   it('maps API field names (full_name, email, phone) onto form fields', () => {
     expect(
@@ -110,6 +110,9 @@ describe('mapRegisterError', () => {
 
   it('uses register-specific copy for rate limits and server errors', () => {
     expect(mapRegisterError(apiError(429)).formError).toMatch(/too many attempts/i)
+    expect(mapRegisterError(apiError(429, [], 'REGISTRATION_LIMIT_REACHED')).formError).toMatch(
+      /created from your network today.*tomorrow/i,
+    )
     expect(mapRegisterError(apiError(500)).formError).toMatch(/create your account/i)
   })
 })

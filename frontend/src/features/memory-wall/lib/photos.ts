@@ -3,8 +3,18 @@ import { PHOTO_UPLOAD_MIME_TYPES } from '@/types/api'
 import { resolveApiUrl } from '@/services/apiClient'
 import type { UploadedPhotoRef } from './plannerState'
 
-/** The API's limits (docs/API_CONTRACT.md §5), checked up front so a bad file never leaves the browser. */
-export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+/**
+ * The API's limits (docs/API_CONTRACT.md §5), checked up front so a bad file never leaves the browser.
+ * Uploads are limited to 2 MB; bigger photos are shrunk automatically first (`photoCompress.ts`).
+ */
+export const MAX_UPLOAD_MB = 2
+export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+/** The upload rule as shown to the customer. */
+export const PHOTO_UPLOAD_HINT = `JPEG, PNG or WebP · up to ${MAX_UPLOAD_MB} MB`
+export const PHOTO_UPLOAD_HINT_LONG = `${PHOTO_UPLOAD_HINT}. Larger photos are shrunk automatically.`
+export const PHOTO_TOO_LARGE_MESSAGE = `That photo is larger than ${MAX_UPLOAD_MB} MB. Please choose a smaller file.`
+export const STORAGE_FULL_MESSAGE =
+  'Photo storage is full right now, so new photos can’t be added. Please contact the studio.'
 export const MIN_SIDE_PX = 300
 export const MAX_SIDE_PX = 8192
 
@@ -63,21 +73,7 @@ export function checkPhotoFile(file: File): string | undefined {
   if (!(PHOTO_UPLOAD_MIME_TYPES as readonly string[]).includes(file.type)) {
     return 'Please choose a JPEG, PNG or WebP photo.'
   }
-  if (file.size > MAX_UPLOAD_BYTES) {
-    return 'That photo is larger than 25 MB. Please choose a smaller file.'
-  }
   if (file.size === 0) return 'That file is empty.'
-  return undefined
-}
-
-/** Pixel size of the dimension check (needs decoding, so it's separate from `checkPhotoFile`). */
-export function checkPhotoDimensions(widthPx: number, heightPx: number): string | undefined {
-  if (Math.min(widthPx, heightPx) < MIN_SIDE_PX) {
-    return `That photo is too small to print well (under ${MIN_SIDE_PX} px).`
-  }
-  if (Math.max(widthPx, heightPx) > MAX_SIDE_PX) {
-    return `That photo is too large (over ${MAX_SIDE_PX} px on a side). Please resize it first.`
-  }
   return undefined
 }
 

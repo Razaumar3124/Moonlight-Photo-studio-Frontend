@@ -78,7 +78,7 @@ describe('GoogleSignIn', () => {
       ux_mode: 'popup',
       auto_select: false,
     })
-    expect(renderButton.mock.calls[0]?.[1]).toMatchObject({ text: 'continue_with', type: 'standard' })
+    expect(renderButton.mock.calls[0]?.[1]).toMatchObject({ text: 'continue_with', type: 'standard', locale: 'en' })
   })
 
   it('forwards the Google ID token to the auth layer and nothing else', async () => {

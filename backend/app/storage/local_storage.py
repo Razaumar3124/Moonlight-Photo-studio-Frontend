@@ -26,6 +26,7 @@ from urllib.parse import quote
 
 from app.core.config import get_settings
 from app.core.exceptions import ResourceNotFoundException, StorageUnavailableException
+from app.storage.types import StoredObject
 
 logger = logging.getLogger("moonlight_studio.local_storage")
 
@@ -175,9 +176,46 @@ class LocalStorage:
             logger.warning("Local storage delete failed for key %s: %s", key, exc)
             return False
 
-    async def delete_objects(self, keys: list[str]) -> None:
+    async def delete_objects(self, keys: list[str]) -> list[str]:
+        """Delete several objects; returns the keys that are gone afterwards (absent counts)."""
+        gone: list[str] = []
         for key in keys:
-            await self.delete_object(key)
+            try:
+                path = self._path_for(key)
+            except InvalidStorageKeyError:
+                continue
+
+            def _remove(path: Path = path) -> None:
+                path.unlink(missing_ok=True)
+                self._meta_path(path).unlink(missing_ok=True)
+
+            try:
+                await asyncio.to_thread(_remove)
+                gone.append(key)
+            except OSError as exc:
+                logger.warning("Local storage delete failed for key %s: %s", key, exc)
+        return gone
+
+    async def list_objects(self, prefix: str = "") -> list[StoredObject]:
+        """Every stored object under ``prefix`` with its size and modification time."""
+
+        def _walk() -> list[StoredObject]:
+            found: list[StoredObject] = []
+            if not self._root.is_dir():
+                return found
+            for path in self._root.rglob("*"):
+                if not path.is_file() or path.name.endswith((_META_SUFFIX, ".part")):
+                    continue
+                key = path.relative_to(self._root).as_posix()
+                if not key.startswith(prefix):
+                    continue
+                stat = path.stat()
+                found.append(
+                    StoredObject(key, stat.st_size, datetime.fromtimestamp(stat.st_mtime, UTC))
+                )
+            return found
+
+        return await asyncio.to_thread(_walk)
 
     async def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
         """Signed, expiring API URL (relative to the API host), like an R2 presigned URL."""

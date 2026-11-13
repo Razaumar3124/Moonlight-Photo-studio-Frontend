@@ -4,6 +4,7 @@ import pytest
 from httpx import AsyncClient
 
 from app.integrations.groq_client import GroqLayoutRecommendation
+from tests.test_photo_upload import register_test_user
 
 
 @pytest.mark.asyncio
@@ -44,10 +45,19 @@ async def test_redesign_layout_smart_mode_with_groq(client: AsyncClient):
         rationale="Switching to a focal center composition for visual grandeur.",
     )
 
-    with patch(
-        "app.integrations.groq_client.GroqClient.get_curator_recommendation",
-        new_callable=AsyncMock,
-    ) as mock_groq:
+    _, token = await register_test_user(client, "ai.user@example.com")
+    auth = {"Authorization": f"Bearer {token}"}
+    with (
+        patch(
+            "app.services.ai_usage_service.AIUsageService.can_make_request",
+            new_callable=AsyncMock,
+            return_value=True,
+        ),
+        patch(
+            "app.integrations.groq_client.GroqClient.get_curator_recommendation",
+            new_callable=AsyncMock,
+        ) as mock_groq,
+    ):
         mock_groq.return_value = (mock_rec, 185)
 
         payload = {
@@ -61,7 +71,7 @@ async def test_redesign_layout_smart_mode_with_groq(client: AsyncClient):
             "engine_mode": "smart_llm",
         }
 
-        response = await client.post("/api/v1/geometry/redesign", json=payload)
+        response = await client.post("/api/v1/geometry/redesign", json=payload, headers=auth)
         assert response.status_code == 200
         data = response.json()
 

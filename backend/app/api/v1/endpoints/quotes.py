@@ -23,6 +23,7 @@ from app.api.dependencies import (
     QuoteServiceDep,
     SettingsDep,
 )
+from app.core import limits
 from app.core.exceptions import PayloadTooLargeException, ValidationException
 from app.schemas.common import ApiErrorResponse
 from app.schemas.quote import (
@@ -144,16 +145,13 @@ async def prepare_quote(
         ) from exc
 
     # 3. Read image bytes (size checked before anything is loaded into memory)
-    max_bytes = settings.QUOTE_PREVIEW_MAX_MB * 1024 * 1024
+    max_bytes = limits.QUOTE_PREVIEW_MAX_BYTES
+    too_large = f"Preview image is larger than {max_bytes // (1024 * 1024)} MB."
     if file.size is not None and file.size > max_bytes:
-        raise PayloadTooLargeException(
-            f"Preview image is larger than {settings.QUOTE_PREVIEW_MAX_MB} MB.", field="file"
-        )
+        raise PayloadTooLargeException(too_large, field="file")
     preview_bytes = await file.read(max_bytes + 1)
     if len(preview_bytes) > max_bytes:
-        raise PayloadTooLargeException(
-            f"Preview image is larger than {settings.QUOTE_PREVIEW_MAX_MB} MB.", field="file"
-        )
+        raise PayloadTooLargeException(too_large, field="file")
 
     # 4. Process quote through quote service
     response = await quote_service.prepare_quote(

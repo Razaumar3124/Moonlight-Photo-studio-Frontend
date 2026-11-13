@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError
 
 from app.core.config import get_settings
 from app.core.exceptions import ResourceNotFoundException, StorageUnavailableException
+from app.storage.types import StoredObject
 
 logger = logging.getLogger("moonlight_studio.r2_storage")
 
@@ -149,25 +150,52 @@ class R2Storage:
             logger.warning("Unexpected error during R2 delete_object for key %s: %s", key, exc)
             return False
 
-    async def delete_objects(self, keys: list[str]) -> None:
-        """Bulk delete multiple objects from Cloudflare R2 asynchronously."""
+    async def delete_objects(self, keys: list[str]) -> list[str]:
+        """Bulk delete; returns the keys that are gone afterwards (absent counts as gone)."""
         if not keys:
-            return
+            return []
         client = self._get_client()
         bucket = self.bucket_name
 
-        def _sync_bulk_delete() -> None:
-            delete_payload = {"Objects": [{"Key": k} for k in keys], "Quiet": True}
-            client.delete_objects(Bucket=bucket, Delete=delete_payload)
+        def _sync_bulk_delete() -> list[str]:
+            payload = {"Objects": [{"Key": k} for k in keys], "Quiet": True}
+            resp = client.delete_objects(Bucket=bucket, Delete=payload)
+            failed = {e.get("Key") for e in (resp or {}).get("Errors", []) or []}
+            return [k for k in keys if k not in failed]
 
         try:
-            await asyncio.to_thread(_sync_bulk_delete)
-            logger.debug("Bulk deleted %d objects from R2", len(keys))
+            gone = await asyncio.to_thread(_sync_bulk_delete)
+            logger.debug("Bulk deleted %d objects from R2", len(gone))
+            return gone
         except Exception as exc:
             logger.warning("Failed to bulk delete R2 objects: %s", exc)
             # Fall back to individual deletes
-            for k in keys:
-                await self.delete_object(k)
+            return [k for k in keys if await self.delete_object(k)]
+
+    async def list_objects(self, prefix: str = "") -> list[StoredObject]:
+        """List every object under ``prefix`` (paginated ListObjectsV2, 1000 keys per call)."""
+        client = self._get_client()
+        bucket = self.bucket_name
+
+        def _sync_list() -> list[StoredObject]:
+            found: list[StoredObject] = []
+            token: str | None = None
+            while True:
+                kwargs: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix}
+                if token:
+                    kwargs["ContinuationToken"] = token
+                resp = client.list_objects_v2(**kwargs)
+                for item in resp.get("Contents", []) or []:
+                    found.append(StoredObject(item["Key"], int(item["Size"]), item["LastModified"]))
+                if not resp.get("IsTruncated"):
+                    return found
+                token = resp.get("NextContinuationToken")
+
+        try:
+            return await asyncio.to_thread(_sync_list)
+        except Exception as exc:
+            logger.error("R2 list_objects failed: %s", exc)
+            raise StorageUnavailableException(issue=str(exc)) from exc
 
     async def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str:
         """Generate short-lived presigned GET URL for an R2 object."""

@@ -28,7 +28,8 @@ def _production(**overrides) -> Settings:
         "R2_BUCKET_NAME": "moonlight-studio-photos",
         "EMAIL_PROVIDER": "resend",
         "RESEND_API_KEY": "re_fake",
-        "RESEND_TEST_MODE": False,
+        "RESEND_FROM_EMAIL": "Moonlight <codes@moonlight.example.com>",
+        "MONGODB_URL": "mongodb+srv://u:p@cluster0.abcde.mongodb.net/",
         "BUSINESS_WHATSAPP_NUMBER": "911234567890",
         "PUBLIC_APP_URL": "https://moonlight.example.com",
     }
@@ -125,7 +126,6 @@ def test_defaults_are_safe_for_local_development(clean_env):
     assert settings.STORAGE_BACKEND == "local"
     assert settings.EMAIL_PROVIDER == "mock"
     assert settings.GROQ_ENABLED is False
-    assert settings.RESEND_TEST_RECIPIENT == ""
     assert settings.R2_BUCKET_NAME == "moonlight-studio-photos"
     assert settings.uses_insecure_dev_secret is True
 
@@ -175,7 +175,20 @@ def test_production_rejects_development_defaults(clean_env):
         ({"DEBUG": True}, "DEBUG must be false"),
         ({"R2_ACCESS_KEY_ID": ""}, "missing R2_ACCESS_KEY_ID"),
         ({"R2_ACCOUNT_ID": "", "R2_ENDPOINT_URL": ""}, "R2_ACCOUNT_ID (or R2_ENDPOINT_URL)"),
-        ({"RESEND_TEST_MODE": True}, "RESEND_TEST_MODE must be false"),
+        (
+            {"RESEND_FROM_EMAIL": "Moonlight <onboarding@resend.dev>"},
+            "RESEND_FROM_EMAIL must use a domain verified in Resend",
+        ),
+        ({"EMAIL_PROVIDER": "mock"}, "EMAIL_PROVIDER must be 'resend'"),
+        ({"BUSINESS_WHATSAPP_NUMBER": "919876543210"}, "BUSINESS_WHATSAPP_NUMBER is still the"),
+        ({"LOG_LEVEL": "DEBUG"}, "LOG_LEVEL must not be DEBUG"),
+        ({"COOKIE_SAMESITE": "none"}, "COOKIE_SAMESITE must not be 'none'"),
+        ({"MONGODB_URL": "mongodb://localhost:27017"}, "MONGODB_URL must not point at localhost"),
+        ({"HEALTH_DIAGNOSTICS_TOKEN": "short"}, "HEALTH_DIAGNOSTICS_TOKEN must be at least 16"),
+        ({"PUBLIC_APP_URL": "http://moonlight.example.com"}, "PUBLIC_APP_URL must use https://"),
+        ({"CORS_ORIGINS": ["http://moonlight.example.com"]}, "CORS_ORIGINS must all use https://"),
+        ({"RATE_LIMIT_BACKEND": "memory"}, "RATE_LIMIT_BACKEND must be 'mongodb'"),
+        ({"STORAGE_BACKEND": "local"}, "STORAGE_BACKEND must be 'r2'"),
         ({"GROQ_ENABLED": True, "GROQ_API_KEY": ""}, "GROQ_API_KEY is required"),
     ],
 )
@@ -217,3 +230,39 @@ def test_production_requires_shared_rate_limit_store():
     with pytest.raises(ValidationError) as exc_info:
         _production(RATE_LIMIT_BACKEND="memory")
     assert "RATE_LIMIT_BACKEND must be 'mongodb'" in str(exc_info.value)
+
+
+def test_removed_tuning_variables_are_no_longer_settings():
+    """Tuning knobs now live in app.core.limits; they cannot be changed through .env."""
+    for name in (
+        "GROQ_TIMEOUT_SECONDS",
+        "GROQ_MAX_OUTPUT_TOKENS",
+        "GROQ_DAILY_REQUEST_LIMIT",
+        "GROQ_DAILY_TOKEN_BUDGET",
+        "GROQ_MODEL",
+        "R2_MAX_UPLOAD_MB",
+        "QUOTE_PREVIEW_MAX_MB",
+        "QUOTE_SHARE_EXPIRY_DAYS",
+        "RESEND_TEST_MODE",
+        "RESEND_TEST_RECIPIENT",
+        "R2_CUSTOM_DOMAIN",
+        "PASSWORD_RESET_TOKEN_EXPIRE_MINUTES",
+    ):
+        assert name not in Settings.model_fields, name
+
+
+def test_stale_variables_in_an_old_env_file_are_ignored(clean_env, monkeypatch):
+    monkeypatch.setenv("R2_MAX_UPLOAD_MB", "25")
+    monkeypatch.setenv("RESEND_TEST_MODE", "true")
+    settings = Settings()
+    assert not hasattr(settings, "R2_MAX_UPLOAD_MB")
+
+
+def test_fixed_free_tier_limits():
+    from app.core import limits
+
+    assert limits.EMAIL_DAILY_LIMIT == 100 and limits.EMAIL_WARN_AT == 95
+    assert limits.R2_STORAGE_LIMIT_BYTES == 9_700_000_000
+    assert limits.PHOTO_MAX_BYTES == 2 * 1024 * 1024
+    assert limits.QUOTE_PREVIEW_MAX_BYTES == 2 * 1024 * 1024
+    assert limits.GROQ_DAILY_REQUEST_LIMIT == 100 and limits.GROQ_DAILY_TOKEN_BUDGET == 50_000

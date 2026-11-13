@@ -11,6 +11,9 @@ Two interchangeable backends implement :class:`ObjectStorage`:
 from typing import Protocol, runtime_checkable
 
 from app.core.config import Settings, get_settings
+from app.storage.types import StoredObject
+
+__all__ = ["ObjectStorage", "StoredObject", "create_storage"]
 
 
 @runtime_checkable
@@ -34,7 +37,9 @@ class ObjectStorage(Protocol):
 
     async def delete_object(self, key: str) -> bool: ...
 
-    async def delete_objects(self, keys: list[str]) -> None: ...
+    async def delete_objects(self, keys: list[str]) -> list[str]: ...
+
+    async def list_objects(self, prefix: str = "") -> list[StoredObject]: ...
 
     async def generate_presigned_url(self, key: str, expires_in: int = 3600) -> str: ...
 

@@ -88,7 +88,8 @@ describe('happy path', () => {
       title: 'My Wall',
       unit: 'ft',
       guides: true,
-      format: 'image/png',
+      format: 'image/jpeg',
+      width: 1600,
     })
   })
 })
@@ -263,21 +264,45 @@ describe('failures', () => {
     expect(hook.result.current.step).toBe('ready')
   })
 
-  it('falls back to WebP when a PNG would be too big, and gives up if even that is', async () => {
-    render.mockResolvedValueOnce(png(13 * 1024 * 1024)).mockResolvedValueOnce(png(500))
+  it('renders a small JPEG on the first try (about 1600 px, quality 0.85)', async () => {
+    render.mockResolvedValue(png(300 * 1024))
     const { hook } = setup()
     act(() => hook.result.current.open())
     await act(() => hook.result.current.submit('My Wall'))
-    expect(render.mock.calls.map((c) => c[2]?.format)).toEqual(['image/png', 'image/webp'])
+    expect(render).toHaveBeenCalledTimes(1)
+    expect(render.mock.calls[0]?.[2]).toMatchObject({ format: 'image/jpeg', width: 1600, quality: 0.85 })
     expect(hook.result.current.step).toBe('ready')
+  })
 
-    cleanup()
-    vi.clearAllMocks()
-    render.mockResolvedValue(png(13 * 1024 * 1024))
-    const second = setup()
-    act(() => second.hook.result.current.open())
-    await act(() => second.hook.result.current.submit('My Wall'))
-    expect(second.hook.result.current.step).toBe('error')
+  it('lowers the quality until the preview is under 600 KB', async () => {
+    render
+      .mockResolvedValueOnce(png(900 * 1024))
+      .mockResolvedValueOnce(png(700 * 1024))
+      .mockResolvedValueOnce(png(500 * 1024))
+    const { hook } = setup()
+    act(() => hook.result.current.open())
+    await act(() => hook.result.current.submit('My Wall'))
+    expect(render.mock.calls.map((c) => c[2]?.quality)).toEqual([0.85, 0.72, 0.6])
+    expect(hook.result.current.step).toBe('ready')
+    const sent = prepare.mock.calls[0]?.[1] as Blob
+    expect(sent.size).toBe(500 * 1024)
+  })
+
+  it('still sends the smallest one when none gets under the target but it is within the 2 MB limit', async () => {
+    render.mockResolvedValue(png(1200 * 1024))
+    const { hook } = setup()
+    act(() => hook.result.current.open())
+    await act(() => hook.result.current.submit('My Wall'))
+    expect(render).toHaveBeenCalledTimes(4)
+    expect(hook.result.current.step).toBe('ready')
+  })
+
+  it('gives up without creating a quote when even the smallest preview is over the limit', async () => {
+    render.mockResolvedValue(png(2 * 1024 * 1024))
+    const { hook } = setup()
+    act(() => hook.result.current.open())
+    await act(() => hook.result.current.submit('My Wall'))
+    expect(hook.result.current.step).toBe('error')
     expect(prepare).not.toHaveBeenCalled()
   })
 

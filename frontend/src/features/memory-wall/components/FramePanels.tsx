@@ -27,7 +27,13 @@ import { cn } from '@/lib/cn'
 import { FRAME_SIZES, MOUNT_COLOURS, PLANNER_RULES, WOOD_FINISHES, type Orientation } from '../constants'
 import { usePhotos } from '../hooks/usePhotoLibrary'
 import { frameGeometry, type Scene } from '../lib/geometry/scene'
-import { dpiQuality, effectiveDpi, toPhotoRef } from '../lib/photos'
+import {
+  dpiQuality,
+  effectiveDpi,
+  PHOTO_UPLOAD_HINT,
+  PHOTO_UPLOAD_HINT_LONG,
+  toPhotoRef,
+} from '../lib/photos'
 import type { FrameConfig, PlannerAction, PlannerState } from '../lib/plannerState'
 import { PREVIEW_OPTIONS } from '../lib/previewOptions'
 import { MyPhotosDialog } from './dialogs/MyPhotosDialog'
@@ -382,6 +388,8 @@ function PhotoPicker({
   const [error, setError] = useState<string | null>(null)
   /** The file behind the last failed upload, so "Try again" doesn't need a new pick. */
   const [failedFile, setFailedFile] = useState<File | null>(null)
+  /** Shown after a photo was shrunk to fit the upload limit. */
+  const [notice, setNotice] = useState<string | null>(null)
   const [progress, setProgress] = useState<number | null>(null)
   const [dragOver, setDragOver] = useState(false)
   const [libraryOpen, setLibraryOpen] = useState(false)
@@ -398,17 +406,20 @@ function PhotoPicker({
     const frameId = frame.id
     setProgress(0)
     setError(null)
+    setNotice(null)
     setFailedFile(null)
     const result = await library.upload(file, { onProgress: setProgress })
     setProgress(null)
-    if (result.ok) dispatch({ type: 'frames/setPhoto', frameId, photo: result.photo })
-    else {
+    if (result.ok) {
+      dispatch({ type: 'frames/setPhoto', frameId, photo: result.photo })
+      setNotice(result.notice ?? null)
+    } else {
       setError(result.error)
       setFailedFile(file)
     }
   }
 
-  let info: React.ReactNode = 'JPEG, PNG or WebP up to 25 MB'
+  let info: React.ReactNode = PHOTO_UPLOAD_HINT_LONG
   let mismatch: Orientation | null = null
   if (missing) {
     info = (
@@ -527,6 +538,9 @@ function PhotoPicker({
             </button>
           </div>
           <p className="text-xs leading-snug text-charcoal-500">{info}</p>
+          {(photo || missing) && (
+            <p className="mt-0.5 text-[0.6875rem] leading-snug text-charcoal-500">{PHOTO_UPLOAD_HINT}</p>
+          )}
         </div>
         <input
           ref={inputRef}
@@ -544,6 +558,11 @@ function PhotoPicker({
       <p className="hidden text-[0.6875rem] text-charcoal-500 [@media(hover:hover)]:block">
         Tip: drop a photo here, or click any frame on the wall to edit it.
       </p>
+      {notice && (
+        <p role="status" className="text-xs text-charcoal-700">
+          {notice}
+        </p>
+      )}
       {mismatch && (
         <p className="flex flex-wrap items-center gap-2 text-xs text-charcoal-700">
           This photo is {mismatch}.

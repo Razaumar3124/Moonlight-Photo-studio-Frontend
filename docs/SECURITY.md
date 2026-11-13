@@ -15,7 +15,7 @@ What the frontend already does, and what hosting and the backend must provide.
 | Input                   | Client-side validation plus `maxLength` caps (identifier 254, password 128). The server must still validate everything. Client checks are for UX only.                                                                                                                                                                                                                                    |
 | Error messages          | Sign-in failures are generic ("details don't match"), never "no account with this email". 5xx bodies and exception text are never shown to the user. Route error details are logged only in development.                                                                                                                                                                                  |
 | Stored designs          | Saved designs (mock `localStorage` now, `/designs` API later) are untrusted: `sanitizePlannerState()` rebuilds every field, maps unknown ids to defaults, clamps numbers to the planner rules, caps frames at 16 and the list at 50, and **never restores photo URLs** (only known bundled samples). Titles render as text.                                                               |
-| Uploads & export        | Photos are checked for MIME type, size (≤ 25 MB) and minimum resolution, then used as session `blob:` URLs. The PNG export embeds images via `<img>` and canvas (`img-src`), not `fetch()`, so `connect-src` stays `'self' <api>` with no `blob:`.                                                                                                                                        |
+| Uploads & export        | Photos are checked for MIME type, size (≤ 2 MB after automatic shrinking) and minimum resolution, then uploaded to the API. The PNG export embeds images via `<img>` and canvas (`img-src`), not `fetch()`, so `connect-src` stays `'self' <api>` with no `blob:`.                                                                                                                                        |
 | Secrets                 | None in the repo. `.env*` files are git-ignored except `.env.example`. Only `VITE_*` vars reach the bundle and they're public by design. `API_PROXY_TARGET` (dev only) has no `VITE_` prefix, so it can't leak.                                                                                                                                                                           |
 | Source maps             | Not emitted in production builds (Vite default).                                                                                                                                                                                                                                                                                                                                          |
 | Dependencies            | `npm audit`: 0 vulnerabilities (2026-11-05).                                                                                                                                                                                                                                                                                                                                              |
@@ -59,6 +59,43 @@ used to be requests (API_ALIGNMENT Q2, Q3, Q17, Q18) are done:
 - **CSRF:** `apiClient` sends `X-CSRF-Protection: 1` on every non-GET request. The cookie
   endpoints reject requests without it, or from an `Origin` outside `CORS_ORIGINS`.
 
+## Free-tier safeguards and resource abuse (Phase 7, 2026-11-12)
+
+- **Email allowance (Resend, 100 per UTC day).** One shared counter in MongoDB (`usage_counters`,
+  key `email:<UTC date>`). A slot is claimed with a single atomic conditional update *before* the
+  provider is called, so concurrent requests and several workers can never pass 100; the 101st is
+  refused. A warning is logged from the 95th. A slot is given back only when the provider
+  definitely did not send (HTTP error, connection refused); a timeout keeps it, because the email
+  may have gone out. When the allowance is gone every address gets the same `503
+  EMAIL_DAILY_LIMIT_REACHED` (checked before the account lookup), and losing the race for the very
+  last slot looks like an unknown account, so account existence is never revealed. Per-address
+  (5/day) and per-network (20/day) caps stop one person from using up everybody's allowance.
+- **Storage ceiling (R2, 9.7 GB).** One counter (`r2_bytes`) is reserved atomically before any
+  write (original + preview + thumbnail, or a quote preview) and released for exactly the bytes
+  that are really gone after a failure, delete or cleanup. Concurrent uploads near the ceiling
+  cannot exceed it. A maintenance job (every 6 h, one worker at a time through a MongoDB lease)
+  retries failed deletions, deletes quote previews more than 31 days old that no live quote
+  references (never anything outside `quotes/`), and re-measures the bucket to correct drift with a
+  compare-and-set, so a concurrent upload is never overwritten.
+- **Upload size and decode memory.** 2 MB per photo and per quote preview (413 while streaming),
+  plus a 25-megapixel cap read from the image header before pixels are decoded (decompression
+  bombs). The browser shrinks bigger photos first, up to 40 MB of input.
+- **Accounts.** At most 20 new accounts per network per day (password and Google sign-up); only
+  successful sign-ups count.
+- **Groq (optional, off by default).** Smart layouts need a signed-in user. A request slot is
+  claimed atomically before the call: 10 per user and 100 per day for everyone (shared across
+  workers), plus a 50,000-token daily budget. Without a key/flag no slot is spent.
+- **Diagnostics.** `GET /health` (token-protected outside development) shows counts and sizes only
+  (emails used today, stored bytes, database size), never addresses or keys, and caches provider
+  probes for 60 s so a monitor cannot become a stream of provider calls.
+- **Production start-up refuses** the mock email provider, the Resend `onboarding@resend.dev`
+  sender, the placeholder WhatsApp number, `DEBUG`, `LOG_LEVEL=DEBUG`, `SameSite=None`, a localhost
+  database, non-https CORS origins or app URL, and a short diagnostics token.
+- **Limits of these guarantees.** They are counters kept by this app. They cannot see usage that
+  happens outside it (another app on the same Resend account or R2 bucket, objects added in the
+  Cloudflare dashboard until the next maintenance run) and they do not replace the providers' own
+  billing alerts. Set those too (see backend/README.md, "Free-tier operations").
+
 ## Quote requests and reports (Phase 6, 2026-11-12)
 
 - **A quote is the saved design.** The planner saves first (with the customer's confirmation), then
@@ -74,15 +111,14 @@ used to be requests (API_ALIGNMENT Q2, Q3, Q17, Q18) are done:
   `rel="noopener noreferrer"`, clicked by the customer, so it isn't a blocked popup and the new tab
   can't reach the planner. Nothing is sent automatically.
 - **Preview image.** Rendered in the browser from what's on screen, sent as multipart, and checked on
-  the server from its bytes (PNG/WebP/JPEG signature, decoded, 100–8192 px, ≤ 15 MB); SVG/HTML,
+  the server from its bytes (PNG/WebP/JPEG signature, decoded, 100–8192 px, ≤ 2 MB); SVG/HTML,
   GIF, truncated, empty, tiny and oversize files are refused before anything is stored.
 - **The report** is public only by an unguessable token (256 bits, only a hash is stored) and expires
   (30 days → 404). It shows the customer's name but masks mobile and email, never shows internal
   ids or storage keys, escapes every user string, and ships a CSP with no scripts and no third-party
   requests, `Referrer-Policy: no-referrer` and `Cache-Control: private, no-store`. The photo column
   shows file names (so the studio can match files): don't name photos with private details.
-- **Not covered here (Phase 7):** preview files of expired quotes are not deleted from storage when the
-  database removes the quote; set a bucket lifecycle rule on the `quotes/` prefix.
+- Preview files of expired quotes are deleted by the storage maintenance job (see Phase 7 below).
 
 ## Planner data (Phase 5, 2026-11-12)
 
@@ -92,7 +128,7 @@ used to be requests (API_ALIGNMENT Q2, Q3, Q17, Q18) are done:
   is checked on upload, list, delete and when a design references a photo (403 for someone else's).
 - **Deleting** a photo that a live design uses is refused (409), so designs never silently lose
   their pictures. A user can't learn who else uses a photo: the ownership check comes first.
-- **Uploads** are checked on the client (type, 25 MB, pixel size) and again on the server from the
+- **Uploads** are checked on the client (type, 2 MB after shrinking, pixel size) and again on the server from the
   file's content (magic bytes, decoded and re-encoded, EXIF applied, 300–8192 px). SVG/HTML/PHP
   payloads and truncated or oversized files are rejected; filenames are only labels (storage keys
   use the photo id) and are rendered as text.

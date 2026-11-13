@@ -175,7 +175,7 @@ class LayoutService:
             if cached_rec:
                 recommendation = cached_rec
                 logger.info("Serving Groq recommendation from cache")
-            elif self.ai_usage_service.can_make_request(caller_id):
+            elif await self.ai_usage_service.can_make_request(caller_id):
                 recommendation, tokens_used = await self.groq_client.get_curator_recommendation(
                     wall=wall_spec,
                     photos=enriched,
@@ -183,7 +183,7 @@ class LayoutService:
                     is_redesign=False,
                 )
                 if recommendation:
-                    self.ai_usage_service.record_usage(caller_id, tokens_used)
+                    await self.ai_usage_service.record_usage(caller_id, tokens_used)
                     self.ai_cache_repo.set(cache_key, recommendation)
 
             if recommendation:

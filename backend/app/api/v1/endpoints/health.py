@@ -1,12 +1,16 @@
 import asyncio
 import hmac
+import logging
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, Request, Response, status
 
 from app.api.dependencies import GroqClientDep, SettingsDep, StorageDep
+from app.core import limits
 from app.core.config import Settings, get_settings
 from app.core.exceptions import ResourceNotFoundException
 from app.core.logging import sanitize_sensitive_data
@@ -15,7 +19,9 @@ from app.integrations.groq_client import GroqClient
 from app.schemas.common import ApiErrorResponse
 from app.schemas.health import (
     DatabaseHealthStatus,
+    DatabaseUsageStatus,
     EmailHealthStatus,
+    EmailUsageStatus,
     GoogleAuthHealthStatus,
     GroqHealthStatus,
     HealthComponentsStatus,
@@ -23,11 +29,16 @@ from app.schemas.health import (
     HealthReadyResponse,
     HealthSystemResponse,
     StorageHealthStatus,
+    StorageUsageStatus,
+    UsageDiagnostics,
     WhatsAppHealthStatus,
 )
 from app.services.email_service import email_service
+from app.services.usage_budget import usage_budget
 from app.services.whatsapp_service import WhatsAppService
 from app.storage import ObjectStorage
+
+logger = logging.getLogger("moonlight_studio.health")
 
 router = APIRouter(prefix="/health", tags=["Health & Operations"])
 
@@ -56,6 +67,24 @@ async def require_health_diagnostics(request: Request, settings=Depends(get_sett
 
 # Module-level start time for uptime calculation
 _APP_START_TIME = time.time()
+
+# Probes of external providers (Resend, Google, Groq) are reused for a short time, so a monitor
+# that polls /health cannot turn into a stream of provider API calls.
+_probe_cache: dict[str, tuple[float, Any]] = {}
+
+
+async def _cached_probe(name: str, ttl: float, probe: Callable[[], Awaitable[Any]]) -> Any:
+    now = time.monotonic()
+    hit = _probe_cache.get(name)
+    if hit is not None and now - hit[0] < ttl:
+        return hit[1]
+    value = await probe()
+    _probe_cache[name] = (now, value)
+    return value
+
+
+def clear_probe_cache() -> None:
+    _probe_cache.clear()
 
 
 async def _check_r2_storage(storage: ObjectStorage, settings: Settings) -> StorageHealthStatus:
@@ -107,7 +136,7 @@ async def _check_groq_client(groq_client: GroqClient, settings: Settings) -> Gro
         return GroqHealthStatus(
             status="unreachable",
             enabled=settings.GROQ_ENABLED,
-            model=settings.GROQ_MODEL,
+            model=limits.GROQ_MODEL,
             issue=_issue(exc),
         )
 
@@ -147,6 +176,38 @@ async def _check_google_oauth(settings: Settings) -> GoogleAuthHealthStatus:
         )
 
 
+async def _database_usage() -> DatabaseUsageStatus:
+    """Database size from the server (dbStats), reused for a few minutes (one cheap command)."""
+    if mongo_manager.db is None:
+        return DatabaseUsageStatus(issue="MongoDB is not connected")
+    try:
+        stats = await mongo_manager.db.command("dbStats")
+        return DatabaseUsageStatus(
+            data_size_bytes=int(stats.get("dataSize", 0)),
+            storage_size_bytes=int(stats.get("storageSize", 0)),
+            collections=int(stats.get("collections", 0)),
+            objects=int(stats.get("objects", 0)),
+        )
+    except Exception as exc:
+        return DatabaseUsageStatus(issue=_issue(exc))
+
+
+async def _usage_diagnostics(settings: Settings) -> UsageDiagnostics:
+    """Free-tier consumption. Counts and sizes only: no addresses, keys or other personal data."""
+    email: EmailUsageStatus | None = None
+    storage_usage: StorageUsageStatus | None = None
+    try:
+        if settings.EMAIL_PROVIDER == "resend":
+            email = EmailUsageStatus(**await usage_budget.email_usage())
+        storage_usage = StorageUsageStatus(**await usage_budget.storage_usage())
+    except Exception as exc:
+        logger.warning("Usage counters unavailable: %s", type(exc).__name__)
+    database = await _cached_probe(
+        "db_usage", limits.USAGE_DIAGNOSTICS_CACHE_SECONDS, _database_usage
+    )
+    return UsageDiagnostics(email=email, storage=storage_usage, database=database)
+
+
 @router.get(
     "",
     response_model=HealthSystemResponse,
@@ -182,10 +243,26 @@ async def health_system(
 
     db_res, r2_res, email_res, groq_res, google_res = await asyncio.gather(
         _safe_db_ping(),
-        _check_r2_storage(storage, settings),
-        _check_email_service(settings),
-        _check_groq_client(groq_client, settings),
-        _check_google_oauth(settings),
+        _cached_probe(
+            "storage",
+            limits.HEALTH_PROVIDER_CACHE_SECONDS,
+            lambda: _check_r2_storage(storage, settings),
+        ),
+        _cached_probe(
+            "email",
+            limits.HEALTH_PROVIDER_CACHE_SECONDS,
+            lambda: _check_email_service(settings),
+        ),
+        _cached_probe(
+            "groq",
+            limits.HEALTH_PROVIDER_CACHE_SECONDS,
+            lambda: _check_groq_client(groq_client, settings),
+        ),
+        _cached_probe(
+            "google",
+            limits.HEALTH_PROVIDER_CACHE_SECONDS,
+            lambda: _check_google_oauth(settings),
+        ),
         return_exceptions=True,
     )
 
@@ -219,7 +296,7 @@ async def health_system(
         else GroqHealthStatus(
             status="error",
             enabled=settings.GROQ_ENABLED,
-            model=settings.GROQ_MODEL,
+            model=limits.GROQ_MODEL,
             issue=_issue(groq_res),
         )
     )
@@ -266,6 +343,7 @@ async def health_system(
         version=settings.VERSION,
         uptime_seconds=uptime,
         components=components,
+        usage=await _usage_diagnostics(settings),
         timestamp=datetime.now(UTC).isoformat(),
     )
 

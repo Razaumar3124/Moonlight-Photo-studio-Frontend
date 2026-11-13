@@ -26,6 +26,13 @@ class PhotoRepository:
                 name="idx_photos_user",
             ),
         ]
+        indexes.append(
+            IndexModel(
+                [("purge_pending", ASCENDING)],
+                name="idx_photos_purge_pending",
+                partialFilterExpression={"purge_pending.0": {"$exists": True}},
+            )
+        )
         await self.collection.create_indexes(indexes)
 
     async def create(self, photo: PhotoInDB) -> PhotoInDB:
@@ -109,6 +116,20 @@ class PhotoRepository:
             },
         )
         return res.modified_count > 0
+
+    async def set_purge_pending(self, photo_id: str, refs: list[dict]) -> None:
+        """Record (or, with an empty list, clear) stored objects still waiting to be removed."""
+        if not ObjectId.is_valid(photo_id):
+            return
+        await self.collection.update_one(
+            {"_id": ObjectId(photo_id)},
+            {"$set": {"purge_pending": refs, "updated_at": datetime.now(UTC)}},
+        )
+
+    async def list_purge_pending(self, limit: int = 100) -> list[PhotoInDB]:
+        """Deleted photos whose storage objects could not be removed yet."""
+        cursor = self.collection.find({"purge_pending.0": {"$exists": True}}).limit(limit)
+        return [PhotoInDB(**doc) async for doc in cursor]
 
     async def hard_delete(self, photo_id: str) -> bool:
         """Permanently remove a photo document from MongoDB."""

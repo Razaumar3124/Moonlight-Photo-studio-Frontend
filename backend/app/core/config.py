@@ -77,10 +77,6 @@ class Settings(BaseSettings):
         default=14,
         description="Refresh token validity lifetime in days",
     )
-    PASSWORD_RESET_TOKEN_EXPIRE_MINUTES: int = Field(
-        default=60,
-        description="Password reset token expiration in minutes",
-    )
 
     # Cookie settings for refresh token
     REFRESH_COOKIE_NAME: str = Field(
@@ -123,9 +119,6 @@ class Settings(BaseSettings):
         default=1024 * 1024,
         ge=16 * 1024,
         description="Maximum body size for non-upload requests",
-    )
-    QUOTE_PREVIEW_MAX_MB: int = Field(
-        default=15, ge=1, le=50, description="Maximum quote preview image size in megabytes"
     )
 
     # Detailed /health diagnostics: open in development; elsewhere requires this token
@@ -193,17 +186,6 @@ class Settings(BaseSettings):
     RESEND_FROM_EMAIL: str = Field(
         default="Moonlight Photo Studio <onboarding@resend.dev>",
         description="Configured sender email address for transactional recovery emails",
-    )
-    RESEND_TEST_MODE: bool = Field(
-        default=True,
-        description="Whether Resend testing mode is enabled to restrict recipient delivery",
-    )
-    RESEND_TEST_RECIPIENT: str = Field(
-        default="",
-        description=(
-            "Only recipient allowed while RESEND_TEST_MODE is enabled "
-            "(the Resend account owner's address)"
-        ),
     )
     EMAIL_OTP_EXPIRE_MINUTES: int = Field(
         default=10,
@@ -279,17 +261,9 @@ class Settings(BaseSettings):
         default="moonlight-studio-photos",
         description="Private Cloudflare R2 bucket name for customer photographs",
     )
-    R2_CUSTOM_DOMAIN: str = Field(
-        default="",
-        description="Optional public custom domain for public assets",
-    )
     R2_ENDPOINT_URL: str = Field(
         default="",
         description="Explicit S3 endpoint URL override (defaults to Cloudflare R2 standard)",
-    )
-    R2_MAX_UPLOAD_MB: int = Field(
-        default=25,
-        description="Maximum allowed photo upload size in megabytes",
     )
     PHOTO_MAX_WIDTH_PX: int = Field(
         default=8192,
@@ -308,7 +282,7 @@ class Settings(BaseSettings):
         description="Validity lifetime in seconds for photo thumbnail and preview HMAC signatures",
     )
 
-    # Business Contact & WhatsApp Quotes (Phase 7)
+    # Business contact & WhatsApp quotes
     BUSINESS_WHATSAPP_NUMBER: str = Field(
         default=PLACEHOLDER_WHATSAPP_NUMBER,
         description="Static business WhatsApp number without +, spaces or special chars",
@@ -316,10 +290,6 @@ class Settings(BaseSettings):
     PUBLIC_APP_URL: str = Field(
         default="http://localhost:5173",
         description="Public canonical base URL for shareable quote reports and application links",
-    )
-    QUOTE_SHARE_EXPIRY_DAYS: int = Field(
-        default=30,
-        description="Validity lifetime in days for shared digital quote design reports",
     )
     RATE_LIMIT_QUOTE_PREPARE_MAX_ATTEMPTS: int = Field(
         default=10,
@@ -332,29 +302,9 @@ class Settings(BaseSettings):
 
     # Groq AI Creative Curator
     GROQ_API_KEY: str = Field(default="", description="API Key for Groq cloud inference")
-    GROQ_MODEL: str = Field(
-        default="llama-3.3-70b-versatile",
-        description="Groq model ID for layout curation recommendations",
-    )
     GROQ_ENABLED: bool = Field(
         default=False,
         description="Whether Groq AI recommendations are enabled",
-    )
-    GROQ_TIMEOUT_SECONDS: int = Field(
-        default=10,
-        description="Network timeout in seconds for Groq API calls",
-    )
-    GROQ_MAX_OUTPUT_TOKENS: int = Field(
-        default=256,
-        description="Maximum tokens for Groq layout recommendation completion",
-    )
-    GROQ_DAILY_REQUEST_LIMIT: int = Field(
-        default=100,
-        description="Maximum daily AI layout requests per user/IP budget",
-    )
-    GROQ_DAILY_TOKEN_BUDGET: int = Field(
-        default=50000,
-        description="Maximum daily token consumption allowance across application",
     )
 
     @field_validator("MONGODB_URL")
@@ -468,6 +418,16 @@ class Settings(BaseSettings):
             )
         if self.DEBUG:
             problems.append("DEBUG must be false")
+        if self.LOG_LEVEL == "DEBUG":
+            problems.append("LOG_LEVEL must not be DEBUG (verbose logs can include personal data)")
+        if self.COOKIE_SAMESITE == "none":
+            problems.append("COOKIE_SAMESITE must not be 'none'")
+        if "localhost" in self.MONGODB_URL or "127.0.0.1" in self.MONGODB_URL:
+            problems.append("MONGODB_URL must not point at localhost")
+        if any(not origin.startswith("https://") for origin in self.CORS_ORIGINS):
+            problems.append("CORS_ORIGINS must all use https://")
+        if 0 < len(self.HEALTH_DIAGNOSTICS_TOKEN.strip()) < 16:
+            problems.append("HEALTH_DIAGNOSTICS_TOKEN must be at least 16 characters (or empty)")
         if self.RATE_LIMIT_BACKEND != "mongodb":
             problems.append("RATE_LIMIT_BACKEND must be 'mongodb' (shared across workers)")
         if self.STORAGE_BACKEND != "r2":
@@ -484,8 +444,11 @@ class Settings(BaseSettings):
                 problems.append("missing " + ", ".join(missing))
         if self.EMAIL_PROVIDER != "resend":
             problems.append("EMAIL_PROVIDER must be 'resend' (mock drops password-reset codes)")
-        elif self.RESEND_TEST_MODE:
-            problems.append("RESEND_TEST_MODE must be false")
+        elif "onboarding@resend.dev" in self.RESEND_FROM_EMAIL.lower():
+            problems.append(
+                "RESEND_FROM_EMAIL must use a domain verified in Resend "
+                "(onboarding@resend.dev only delivers to the account owner)"
+            )
         if self.GROQ_ENABLED and not self.GROQ_API_KEY.strip():
             problems.append("GROQ_API_KEY is required when GROQ_ENABLED is true")
         if self.BUSINESS_WHATSAPP_NUMBER == PLACEHOLDER_WHATSAPP_NUMBER:
@@ -515,11 +478,6 @@ class Settings(BaseSettings):
         if self.R2_ACCOUNT_ID:
             return f"https://{self.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
         return "https://mock-account.r2.cloudflarestorage.com"
-
-    @property
-    def max_upload_bytes(self) -> int:
-        """Maximum allowed upload size in bytes."""
-        return self.R2_MAX_UPLOAD_MB * 1024 * 1024
 
     @property
     def is_production(self) -> bool:

@@ -115,7 +115,7 @@ class RedesignService:
 
             if cached_rec and cached_rec.recommended_style != req.current_layout_style:
                 rec = cached_rec
-            elif self.ai_usage_service.can_make_request(caller_id):
+            elif await self.ai_usage_service.can_make_request(caller_id):
                 rec, tokens_used = await self.groq_client.get_curator_recommendation(
                     wall=wall_spec,
                     photos=enriched,
@@ -123,7 +123,7 @@ class RedesignService:
                     is_redesign=True,
                 )
                 if rec:
-                    self.ai_usage_service.record_usage(caller_id, tokens_used)
+                    await self.ai_usage_service.record_usage(caller_id, tokens_used)
                     self.ai_cache_repo.set(cache_key, rec)
             else:
                 rec = None

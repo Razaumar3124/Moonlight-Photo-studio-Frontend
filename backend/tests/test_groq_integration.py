@@ -1,40 +1,64 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
+from app.core import limits
 from app.core.config import Settings
 from app.integrations.groq_client import GroqClient, GroqLayoutRecommendation
 from app.repositories.ai_cache_repository import AICacheRepository
 from app.services.ai_usage_service import AIUsageService
+from app.services.usage_budget import groq_requests_key, usage_budget
 
 
-def test_ai_usage_service_limits():
-    """AIUsageService blocks callers exceeding daily request limits or token budget."""
-    settings = Settings(
-        GROQ_DAILY_REQUEST_LIMIT=2,
-        GROQ_DAILY_TOKEN_BUDGET=500,
+async def test_ai_usage_service_limits(monkeypatch):
+    """Per-user and shared daily limits and the token budget are enforced before Groq is called."""
+    monkeypatch.setattr(limits, "GROQ_DAILY_REQUESTS_PER_USER", 2)
+    monkeypatch.setattr(limits, "GROQ_DAILY_REQUEST_LIMIT", 3)
+    monkeypatch.setattr(limits, "GROQ_DAILY_TOKEN_BUDGET", 500)
+    service = AIUsageService(Settings(GROQ_ENABLED=True, GROQ_API_KEY="mock-groq-key"))
+
+    assert await service.can_make_request("user-abc") is True
+    assert await service.can_make_request("user-abc") is True
+    assert await service.can_make_request("user-abc") is False  # per-user cap (2)
+
+    assert await service.can_make_request("user-xyz") is True  # 3rd shared request
+    assert await service.can_make_request("user-new") is False  # shared cap (3)
+
+    await service.record_usage("user-xyz", tokens_used=600)  # over the token budget
+    assert await service.can_make_request("user-q") is False
+
+
+async def test_ai_usage_is_off_without_key_or_flag():
+    """With Groq disabled no request slot is ever spent."""
+    service = AIUsageService(Settings(GROQ_ENABLED=False, GROQ_API_KEY=""))
+    assert await service.can_make_request("user-abc") is False
+    assert await usage_budget.store().get(groq_requests_key()) == 0
+
+
+async def test_concurrent_ai_requests_never_exceed_shared_limit(monkeypatch):
+    monkeypatch.setattr(limits, "GROQ_DAILY_REQUESTS_PER_USER", 100)
+    monkeypatch.setattr(limits, "GROQ_DAILY_REQUEST_LIMIT", 7)
+    service = AIUsageService(Settings(GROQ_ENABLED=True, GROQ_API_KEY="k"))
+    results = await asyncio.gather(*(service.can_make_request(f"u{i}") for i in range(40)))
+    assert sum(results) == 7
+
+
+async def test_smart_layout_requires_login(client):
+    payload = {
+        "wall": {"width_inches": 120.0, "height_inches": 96.0},
+        "frames": [{"item_id": "f1", "photo_width_inches": 12.0, "photo_height_inches": 16.0}],
+        "engine_mode": "smart_llm",
+    }
+    for path in ("generate-layout", "redesign"):
+        body = dict(payload, current_layout_style="grid") if path == "redesign" else payload
+        res = await client.post(f"/api/v1/geometry/{path}", json=body)
+        assert res.status_code == 401, path
+    geometric = await client.post(
+        "/api/v1/geometry/generate-layout", json=dict(payload, engine_mode="geometric")
     )
-    service = AIUsageService(settings)
-
-    caller = "user-abc"
-    assert service.can_make_request(caller) is True
-
-    # 1st request
-    service.record_usage(caller, tokens_used=100)
-    assert service.can_make_request(caller) is True
-
-    # 2nd request
-    service.record_usage(caller, tokens_used=150)
-    # Caller reached limit of 2 requests
-    assert service.can_make_request(caller) is False
-
-    # Another caller can still make requests
-    assert service.can_make_request("user-xyz") is True
-
-    # Global token budget exceeded
-    service.record_usage("user-xyz", tokens_used=300)  # Total: 100 + 150 + 300 = 550 > 500
-    assert service.can_make_request("user-xyz") is False
+    assert geometric.status_code == 200  # the free geometry engine stays open
 
 
 def test_ai_cache_repository_hit_and_miss():

@@ -120,7 +120,7 @@ the frontend sources.
 - **Q11, Q13:** one envelope for everything; codes are listed in contract §1.4. `details[].field`
   is the request path (`email`, `wall.width_inches`, `items.0.finish_id`).
 - **Q12:** `?page&page_size` for designs and photos.
-- **Q14:** photos ≤ 25 MB, 300–8192 px per side; quote previews ≤ 15 MB.
+- **Q14:** photos ≤ 2 MB (the browser shrinks larger ones first), 300–8192 px per side, ≤ 25 MP; quote previews ≤ 2 MB.
 - **Q15:** India only (`+91`), validated server-side.
 - **Q19:** 8–128 characters with a letter and a digit (same as the UI); duplicates → 409
   `ACCOUNT_ALREADY_EXISTS` with `details[].field` = `email`/`phone`; Unicode names (e.g.

@@ -152,6 +152,12 @@ export function describeQuoteError(error: unknown): QuoteProblem {
         retryable: false,
       }
     case 503:
+      if (error.code === 'STORAGE_LIMIT_REACHED') {
+        return {
+          message: 'Quote requests are paused right now because storage is full. Please contact the studio.',
+          retryable: false,
+        }
+      }
       return { message: 'The service is busy right now. Please try again shortly.', retryable: true }
     default:
       return {

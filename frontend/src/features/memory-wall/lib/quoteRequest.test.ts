@@ -159,6 +159,7 @@ describe('describeQuoteError', () => {
     [e(413), /too large/, true],
     [e(429), /several quotes/, false],
     [e(503), /busy/, true],
+    [e(503, 'STORAGE_LIMIT_REACHED'), /storage is full/, false],
     [e(500), /shortly/, true],
     [
       e(422, 'VALIDATION_ERROR', [{ field: 'file', issue: 'Unsupported image signature' }]),

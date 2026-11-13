@@ -9,10 +9,11 @@ from app.core.exceptions import (
     ForbiddenException,
     PhotoInUseException,
     ResourceNotFoundException,
+    StorageLimitReachedException,
     StorageUnavailableException,
 )
 from app.core.security import generate_photo_signature, verify_photo_signature
-from app.models.photo import PhotoInDB
+from app.models.photo import PhotoInDB, StoredObjectRef
 from app.repositories.design_repository import DesignRepository
 from app.repositories.photo_repository import PhotoRepository
 from app.schemas.photo import (
@@ -22,6 +23,7 @@ from app.schemas.photo import (
 )
 from app.services.image_processing_service import ImageProcessingService
 from app.services.rate_limiter import rate_limiter
+from app.services.usage_budget import usage_budget
 from app.storage import ObjectStorage
 
 logger = logging.getLogger("moonlight_studio.photo_service")
@@ -56,6 +58,24 @@ class PhotoService:
         thumbnail_url = f"/api/v1/photos/{photo_id}/thumbnail?sig={thumb_sig}&exp={expires_at}"
         preview_url = f"/api/v1/photos/{photo_id}/preview?sig={prev_sig}&exp={expires_at}"
         return thumbnail_url, preview_url
+
+    async def _rollback_upload(self, sizes: dict[str, int], attempted: list[str]) -> None:
+        """Remove what an upload wrote and give back the reservation for what is gone.
+
+        Objects that were never attempted are not in storage; attempted ones count as freed only
+        when the delete succeeded. Anything that could not be deleted keeps its reservation
+        (it does occupy space) and is picked up by the next reconciliation.
+        """
+        try:
+            gone = set(await self.r2_storage.delete_objects(attempted))
+        except Exception as exc:
+            logger.error("Rollback delete failed: %s", exc)
+            gone = set()
+        freed = sum(n for key, n in sizes.items() if key not in attempted or key in gone)
+        try:
+            await usage_budget.release_storage(freed)
+        except Exception as exc:  # the counter heals on the next reconciliation
+            logger.error("Could not release storage reservation (%d bytes): %s", freed, exc)
 
     async def upload_photo(
         self,
@@ -95,39 +115,32 @@ class PhotoService:
         prev_key = f"users/{user_id}/photos/{photo_id}/preview.webp"
         thumb_key = f"users/{user_id}/photos/{photo_id}/thumbnail.webp"
 
-        uploaded_keys: list[str] = []
+        uploads = [
+            (orig_key, processed.original_bytes, processed.mime_type, {}),
+            (prev_key, processed.preview_bytes, "image/webp", {"type": "preview"}),
+            (thumb_key, processed.thumbnail_bytes, "image/webp", {"type": "thumbnail"}),
+        ]
+        sizes = {key: len(data) for key, data, _, _ in uploads}
+
+        # 5. Reserve the bytes in the global storage budget *before* writing anything. The
+        #    reservation is atomic, so concurrent uploads can never exceed the ceiling together.
+        if not await usage_budget.reserve_storage(sum(sizes.values())):
+            raise StorageLimitReachedException()
+
+        attempted: list[str] = []
         try:
-            # 5. Upload original image to Cloudflare R2
-            await self.r2_storage.put_object(
-                key=orig_key,
-                data=processed.original_bytes,
-                content_type=processed.mime_type,
-                metadata={"user_id": user_id, "photo_id": photo_id},
-            )
-            uploaded_keys.append(orig_key)
-
-            # 6. Upload 1600px preview WebP to Cloudflare R2
-            await self.r2_storage.put_object(
-                key=prev_key,
-                data=processed.preview_bytes,
-                content_type="image/webp",
-                metadata={"user_id": user_id, "photo_id": photo_id, "type": "preview"},
-            )
-            uploaded_keys.append(prev_key)
-
-            # 7. Upload 300px thumbnail WebP to Cloudflare R2
-            await self.r2_storage.put_object(
-                key=thumb_key,
-                data=processed.thumbnail_bytes,
-                content_type="image/webp",
-                metadata={"user_id": user_id, "photo_id": photo_id, "type": "thumbnail"},
-            )
-            uploaded_keys.append(thumb_key)
-
+            # 6. Upload original, 1600px preview and 300px thumbnail
+            for key, data, content_type, extra in uploads:
+                attempted.append(key)  # a timed-out put may still have landed: clean it too
+                await self.r2_storage.put_object(
+                    key=key,
+                    data=data,
+                    content_type=content_type,
+                    metadata={"user_id": user_id, "photo_id": photo_id, **extra},
+                )
         except Exception as exc:
             logger.error("R2 upload failure, rolling back uploaded objects: %s", exc)
-            if uploaded_keys:
-                await self.r2_storage.delete_objects(uploaded_keys)
+            await self._rollback_upload(sizes, attempted)
             raise StorageUnavailableException(
                 issue=f"Failed to store photograph in Cloudflare R2: {exc}"
             ) from exc
@@ -149,6 +162,7 @@ class PhotoService:
             height_px=processed.natural_height,
             aspect_ratio=processed.aspect_ratio,
             suggested_orientation=processed.suggested_orientation,
+            stored_objects=[StoredObjectRef(key=k, size=n) for k, n in sizes.items()],
             status="ready",
             is_deleted=False,
             created_at=now,
@@ -159,7 +173,7 @@ class PhotoService:
             await self.photo_repo.create(photo_doc)
         except Exception as exc:
             logger.error("MongoDB metadata persistence failed, rolling back R2 objects: %s", exc)
-            await self.r2_storage.delete_objects(uploaded_keys)
+            await self._rollback_upload(sizes, attempted)
             raise
 
         # 9. Generate secure short-lived URLs for direct <img src> rendering
@@ -277,7 +291,27 @@ class PhotoService:
         # Soft delete in database first
         await self.photo_repo.soft_delete(photo_id, user_id)
 
-        # Remove R2 objects asynchronously
-        keys_to_delete = [photo.storage_key, photo.preview_key, photo.thumbnail_key]
-        await self.r2_storage.delete_objects(keys_to_delete)
-        logger.info("Deleted photo %s and its R2 storage assets", photo_id)
+        # Remove the stored objects, then free exactly the bytes that are really gone
+        refs = photo.object_refs()
+        await self.purge_objects(photo_id, refs)
+        logger.info("Deleted photo %s and its storage assets", photo_id)
+
+    async def purge_objects(
+        self, photo_id: str, refs: list[StoredObjectRef], was_pending: bool = False
+    ) -> None:
+        """Delete a deleted photo's objects; failures are remembered and retried later."""
+        try:
+            gone = set(await self.r2_storage.delete_objects([r.key for r in refs]))
+        except Exception as exc:
+            logger.error("Storage delete failed for photo %s: %s", photo_id, exc)
+            gone = set()
+        freed = sum(r.size for r in refs if r.key in gone)
+        try:
+            await usage_budget.release_storage(freed)
+        except Exception as exc:  # the counter heals on the next reconciliation
+            logger.error("Could not release storage (%d bytes): %s", freed, exc)
+        remaining = [r.model_dump() for r in refs if r.key not in gone]
+        if remaining or was_pending:
+            await self.photo_repo.set_purge_pending(photo_id, remaining)
+        if remaining:
+            logger.warning("Photo %s: %d object(s) pending removal", photo_id, len(remaining))

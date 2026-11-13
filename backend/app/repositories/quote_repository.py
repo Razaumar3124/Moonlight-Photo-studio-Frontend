@@ -151,6 +151,14 @@ class QuoteRepository:
         docs = await cursor.to_list(length=limit)
         return [QuoteInDB(**d) for d in docs]
 
+    async def has_active_quote_for_preview(self, preview_key: str) -> bool:
+        """True while a not-yet-expired quote still points at this stored preview image."""
+        found = await self.collection.find_one(
+            {"preview_image_key": preview_key, "expires_at": {"$gt": datetime.now(UTC)}},
+            {"_id": 1},
+        )
+        return found is not None
+
     async def delete(self, quote_id: str) -> bool:
         """Delete quote document."""
         res = await self.collection.delete_one({"_id": str(quote_id)})

@@ -5,13 +5,14 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageOps
 
+from app.core import limits
 from app.core.config import get_settings
 from app.core.exceptions import ValidationException
 
 logger = logging.getLogger("moonlight_studio.image_processing")
 
-# Guard against decompression bomb attacks (100 megapixels max)
-Image.MAX_IMAGE_PIXELS = 100_000_000
+# Pillow's own decompression-bomb guard (we check PHOTO_MAX_PIXELS explicitly as well)
+Image.MAX_IMAGE_PIXELS = limits.PHOTO_MAX_PIXELS * 2
 
 # Magic byte signatures for supported photo formats
 MAGIC_SIGNATURES = {
@@ -69,8 +70,8 @@ class ImageProcessingService:
 
         # 1. Enforce payload size limits
         file_size = len(raw_bytes)
-        if file_size > settings.max_upload_bytes:
-            max_mb = settings.R2_MAX_UPLOAD_MB
+        if file_size > limits.PHOTO_MAX_BYTES:
+            max_mb = limits.PHOTO_MAX_BYTES // (1024 * 1024)
             raise ValidationException(
                 message=f"That photo is larger than {max_mb} MB. Please choose a smaller file.",
                 details=[
@@ -119,6 +120,14 @@ class ImageProcessingService:
                 message="We couldn’t read that image.",
                 details=[{"field": "file", "issue": "Image data is corrupt or unsupported"}],
             ) from exc
+
+        # 4b. Total-pixel guard from the header alone, before any pixel data is decoded.
+        if img.size[0] * img.size[1] > limits.PHOTO_MAX_PIXELS:
+            mp = limits.PHOTO_MAX_PIXELS // 1_000_000
+            raise ValidationException(
+                message=f"That photo has too many pixels (over {mp} megapixels).",
+                details=[{"field": "file", "issue": f"Pixel count exceeds {mp} megapixels"}],
+            )
 
         # 5. Apply EXIF orientation transpose (smartphone cameras, portrait modes)
         try:

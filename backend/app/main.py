@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -21,7 +22,12 @@ from app.repositories.quote_repository import QuoteRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.template_repository import TemplateRepository
 from app.repositories.user_repository import UserRepository
+from app.services.image_processing_service import ImageProcessingService
+from app.services.photo_service import PhotoService
 from app.services.rate_limiter import ensure_rate_limit_indexes
+from app.services.storage_maintenance import StorageMaintenance, maintenance_loop
+from app.services.usage_budget import ensure_usage_indexes
+from app.storage import create_storage
 
 logger = logging.getLogger("moonlight_studio.app")
 
@@ -60,6 +66,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     warm_up_password_hashing()
 
     # 2. Initialize asynchronous MongoDB connection pool and indexes
+    maintenance_task: asyncio.Task | None = None
     if settings.ENVIRONMENT != "test":
         try:
             await mongo_manager.connect(settings)
@@ -78,7 +85,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             await design_repo.create_indexes()
             await quote_repo.create_indexes()
             await ensure_rate_limit_indexes(mongo_manager.get_database())
+            await ensure_usage_indexes(mongo_manager.get_database())
             logger.info("MongoDB collection indexes verified")
+            storage = create_storage(settings)
+            maintenance = StorageMaintenance(
+                storage=storage,
+                photo_repo=photo_repo,
+                quote_repo=quote_repo,
+                photo_service=PhotoService(photo_repo, ImageProcessingService(), storage),
+            )
+            maintenance_task = asyncio.create_task(maintenance_loop(maintenance))
         except Exception as exc:
             logger.warning(
                 "MongoDB initial connection deferred or failed: %s (will retry on readiness check)",
@@ -88,6 +104,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # 3. Shutdown: Cleanly close MongoDB connection pool
+    if maintenance_task is not None:
+        maintenance_task.cancel()
+        await asyncio.gather(maintenance_task, return_exceptions=True)
     if settings.ENVIRONMENT != "test":
         logger.info("Shutting down %s", settings.APP_NAME)
         await mongo_manager.disconnect()

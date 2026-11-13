@@ -6,6 +6,7 @@ from typing import Any
 from starlette import status
 from starlette.exceptions import HTTPException
 
+from app.core import limits
 from app.core.config import get_settings
 
 Scope = MutableMapping[str, Any]
@@ -38,12 +39,10 @@ def body_limit_for(path: str) -> int:
     settings = get_settings()
     api = settings.API_V1_STR.rstrip("/")
     if path == f"{api}/photos/upload":
-        return settings.max_upload_bytes + _MULTIPART_OVERHEAD
+        return limits.PHOTO_MAX_BYTES + _MULTIPART_OVERHEAD
     if path == f"{api}/quotes/prepare":
         return (
-            settings.QUOTE_PREVIEW_MAX_MB * 1024 * 1024
-            + settings.MAX_REQUEST_BODY_BYTES
-            + _MULTIPART_OVERHEAD
+            limits.QUOTE_PREVIEW_MAX_BYTES + settings.MAX_REQUEST_BODY_BYTES + _MULTIPART_OVERHEAD
         )
     return settings.MAX_REQUEST_BODY_BYTES
 

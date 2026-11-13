@@ -5,7 +5,8 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
-from app.core.exceptions import AppException
+from app.core.exceptions import AppException, EmailLimitReachedException
+from app.services.usage_budget import usage_budget
 
 logger = logging.getLogger("moonlight_studio.email")
 
@@ -113,13 +114,25 @@ class EmailService:
     def __init__(self) -> None:
         self.mock_sent_emails: list[dict[str, Any]] = []
 
+    @staticmethod
+    async def _refund_slot() -> None:
+        try:
+            await usage_budget.release_email()
+        except Exception as exc:  # the count only errs on the cautious side
+            logger.error("Could not give back the email slot: %s", exc)
+
     async def send_otp_email(
         self,
         to_email: str,
         otp_code: str,
         expiry_minutes: int | None = None,
+        slot_reserved: bool = False,
     ) -> bool:
-        """Dispatch branded 6-digit OTP email via Resend or recording mock."""
+        """Dispatch branded 6-digit OTP email via Resend or recording mock.
+
+        With Resend, one slot of the daily allowance (``usage_budget``) is used per email and
+        given back when the provider definitely did not send it.
+        """
         settings = get_settings()
         expire_mins = expiry_minutes or settings.EMAIL_OTP_EXPIRE_MINUTES
 
@@ -156,25 +169,10 @@ class EmailService:
                     issue="Missing RESEND_API_KEY",
                 )
 
-            # Enforce Resend Testing Mode recipient restriction
-            if settings.RESEND_TEST_MODE:
-                allowed_recipient = (settings.RESEND_TEST_RECIPIENT or "").strip().lower()
-                norm_to_email = to_email.strip().lower()
-                if allowed_recipient and norm_to_email != allowed_recipient:
-                    # The allowed address is a developer's inbox: log it, never return it.
-                    logger.warning(
-                        "Resend testing mode blocked dispatch to '%s'; only '%s' is permitted.",
-                        to_email,
-                        allowed_recipient,
-                    )
-                    raise EmailDeliveryException(
-                        message=(
-                            "Email delivery is in testing mode and can only reach the configured "
-                            "test recipient. Verify a sending domain at resend.com/domains to "
-                            "email other recipients."
-                        ),
-                        issue="Recipient not allowed in Resend test mode",
-                    )
+            # Daily allowance (Resend free tier). The slot is claimed atomically before the
+            # request; callers that already claimed one pass slot_reserved=True.
+            if not slot_reserved and not await usage_budget.reserve_email():
+                raise EmailLimitReachedException()
 
             payload = {
                 "from": settings.RESEND_FROM_EMAIL,
@@ -198,35 +196,26 @@ class EmailService:
                     )
 
                 if resp.status_code in (200, 201):
-                    logger.info("Verification OTP email dispatched via Resend to %s", to_email)
+                    logger.info("Verification OTP email dispatched via Resend")
                     return True
+
+                # Resend answered with an error: nothing was sent, so the slot is given back.
+                await self._refund_slot()
 
                 # Parse Resend response safely without leaking credentials or raw payloads
                 error_message = "Failed to deliver verification code via email."
                 issue_summary = f"Resend HTTP {resp.status_code}"
-                try:
-                    resend_json = resp.json()
-                    resend_msg = resend_json.get("message", "")
-                    if resp.status_code == 403 and "testing emails" in resend_msg.lower():
-                        error_message = (
-                            "Resend is in testing mode and can only deliver to the verified "
-                            "account owner. Verify a sending domain at resend.com/domains to "
-                            "email other recipients."
-                        )
-                        issue_summary = "Resend 403 testing recipient restriction"
-                    elif resp.status_code == 422:
-                        error_message = "Email delivery service rejected recipient address format."
-                        issue_summary = "Resend 422 validation error"
-                    elif resp.status_code == 429:
-                        error_message = (
-                            "Email delivery rate limit reached. Please wait a moment and try again."
-                        )
-                        issue_summary = "Resend 429 rate limit exceeded"
-                    elif resp.status_code == 401:
-                        error_message = "Email delivery service authentication error."
-                        issue_summary = "Resend 401 unauthorized"
-                except Exception:
-                    pass
+                if resp.status_code == 422:
+                    error_message = "Email delivery service rejected recipient address format."
+                    issue_summary = "Resend 422 validation error"
+                elif resp.status_code == 429:
+                    error_message = (
+                        "Email delivery rate limit reached. Please wait a moment and try again."
+                    )
+                    issue_summary = "Resend 429 rate limit exceeded"
+                elif resp.status_code == 401:
+                    error_message = "Email delivery service authentication error."
+                    issue_summary = "Resend 401 unauthorized"
 
                 logger.error(
                     "Resend API delivery rejected: status=%d issue=%s",
@@ -238,14 +227,23 @@ class EmailService:
                     issue=issue_summary,
                 )
 
+            except httpx.ConnectError as exc:
+                # The connection was never established, so nothing was sent.
+                await self._refund_slot()
+                logger.error("Resend connection error: %s", exc)
+                raise EmailDeliveryException(
+                    message="Network error communicating with email provider.",
+                    issue="Connection error communicating with email provider",
+                ) from exc
             except httpx.TimeoutException as exc:
+                # Ambiguous: the email may have been accepted, so the slot stays used.
                 logger.error("Resend API timed out after 5.0 seconds")
                 raise EmailDeliveryException(
                     message="Email delivery service timed out. Please try again.",
                     issue="Resend timeout",
                 ) from exc
             except httpx.RequestError as exc:
-                logger.error("Resend connection error: %s", exc)
+                logger.error("Resend request error: %s", type(exc).__name__)
                 raise EmailDeliveryException(
                     message="Network error communicating with email provider.",
                     issue="Connection error communicating with email provider",
@@ -294,10 +292,7 @@ class EmailService:
                         "provider": "resend",
                         "from_email": settings.RESEND_FROM_EMAIL,
                         "latency_ms": latency,
-                        "test_mode": settings.RESEND_TEST_MODE,
                     }
-                    if settings.RESEND_TEST_MODE:
-                        health_info["test_recipient"] = settings.RESEND_TEST_RECIPIENT
                     return health_info
                 return {
                     "status": "degraded",

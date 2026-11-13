@@ -10,17 +10,15 @@ import { drawingHeight } from './room'
  */
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
+/** Width of the PNG download; the quote preview is rendered smaller (see `width`). */
 const EXPORT_WIDTH_PX = 2400
-
-/** No embedded photo needs more pixels than the whole export is wide. */
-const MAX_EMBED_PX = EXPORT_WIDTH_PX
 
 /**
  * Inline an image as a data URL. Loaded through <img> (CSP `img-src` allows self, the API origin,
  * blob: and data:), NOT fetch(): `connect-src` is kept narrow. Photos come from the API as signed
  * URLs; when the API is on another origin they are requested in CORS mode (the API echoes the
  * allowed frontend origin), otherwise the canvas would be tainted and unreadable. Re-encoding also
- * shrinks 25 MB uploads to what the PNG can actually show. WebP keeps transparency; browsers that
+ * shrinks uploads to what the output can actually show. WebP keeps transparency; browsers that
  * can't encode it fall back to PNG.
  */
 function isCrossOrigin(href: string): boolean {
@@ -32,7 +30,11 @@ function isCrossOrigin(href: string): boolean {
   }
 }
 
-async function toDataUrl(href: string, cache: Map<string, Promise<string>>): Promise<string> {
+async function toDataUrl(
+  href: string,
+  cache: Map<string, Promise<string>>,
+  maxEmbedPx: number,
+): Promise<string> {
   const hit = cache.get(href)
   if (hit) return hit
   const task = (async () => {
@@ -40,7 +42,7 @@ async function toDataUrl(href: string, cache: Map<string, Promise<string>>): Pro
     if (isCrossOrigin(href)) img.crossOrigin = 'anonymous'
     img.src = href
     await img.decode()
-    const scale = Math.min(1, MAX_EMBED_PX / Math.max(img.naturalWidth, img.naturalHeight, 1))
+    const scale = Math.min(1, maxEmbedPx / Math.max(img.naturalWidth, img.naturalHeight, 1))
     const canvas = document.createElement('canvas')
     canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
     canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
@@ -110,8 +112,12 @@ export interface WallImageOptions {
   title: string
   unit: LengthUnit
   guides: boolean
-  /** PNG by default; WebP is far smaller for the quote preview when a PNG would be too big. */
-  format?: 'image/png' | 'image/webp'
+  /** PNG by default; JPEG is what the quote preview uses (small, opaque, works everywhere). */
+  format?: 'image/png' | 'image/webp' | 'image/jpeg'
+  /** Output width in pixels (default 2400, the PNG download). */
+  width?: number
+  /** Encoder quality 0–1 for JPEG/WebP. */
+  quality?: number
 }
 
 /**
@@ -124,6 +130,7 @@ export async function renderWallImage(
   options: WallImageOptions,
 ): Promise<Blob> {
   const clone = svg.cloneNode(true) as SVGSVGElement
+  const outWidth = Math.max(200, Math.round(options.width ?? EXPORT_WIDTH_PX))
   const { w: W, h: H } = scene.wall
   // The drawing is the wall plus the floor band beneath it (see WallSvg / lib/room.ts).
   const VH = drawingHeight(H)
@@ -141,7 +148,7 @@ export async function renderWallImage(
   await Promise.all(
     [...clone.querySelectorAll('image')].map(async (img) => {
       const href = img.getAttribute('href')
-      if (href && !href.startsWith('data:')) img.setAttribute('href', await toDataUrl(href, cache))
+      if (href && !href.startsWith('data:')) img.setAttribute('href', await toDataUrl(href, cache, outWidth))
     }),
   )
 
@@ -180,9 +187,9 @@ export async function renderWallImage(
   caption.setAttribute('fill', '#4a3329')
   clone.append(caption)
 
-  const height = Math.round((EXPORT_WIDTH_PX * VH) / W)
+  const height = Math.round((outWidth * VH) / W)
   clone.setAttribute('xmlns', SVG_NS)
-  clone.setAttribute('width', String(EXPORT_WIDTH_PX))
+  clone.setAttribute('width', String(outWidth))
   clone.setAttribute('height', String(height))
 
   const svgBlob = new Blob([new XMLSerializer().serializeToString(clone)], {
@@ -195,19 +202,21 @@ export async function renderWallImage(
     await img.decode()
 
     const canvas = document.createElement('canvas')
-    canvas.width = EXPORT_WIDTH_PX
+    canvas.width = outWidth
     canvas.height = height
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('Canvas is not available')
-    ctx.drawImage(img, 0, 0, EXPORT_WIDTH_PX, height)
-
     const type = options.format ?? 'image/png'
+    if (type === 'image/jpeg') {
+      // JPEG has no transparency: paint white underneath so nothing turns black.
+      ctx.fillStyle = '#ffffff'
+      ctx.fillRect(0, 0, outWidth, height)
+    }
+    ctx.drawImage(img, 0, 0, outWidth, height)
+
+    const quality = type === 'image/png' ? undefined : (options.quality ?? 0.9)
     return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error('Image encoding failed'))),
-        type,
-        type === 'image/webp' ? 0.9 : undefined,
-      ),
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Image encoding failed'))), type, quality),
     )
   } finally {
     URL.revokeObjectURL(svgUrl)

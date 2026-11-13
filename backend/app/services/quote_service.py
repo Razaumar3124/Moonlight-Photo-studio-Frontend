@@ -7,11 +7,13 @@ from datetime import UTC, datetime, timedelta
 
 from PIL import Image
 
+from app.core import limits
 from app.core.config import get_settings
 from app.core.exceptions import (
     ForbiddenException,
     IdempotencyConflictException,
     ResourceNotFoundException,
+    StorageLimitReachedException,
     ValidationException,
 )
 from app.core.security import generate_secure_token, hash_token
@@ -34,6 +36,7 @@ from app.schemas.quote import (
 )
 from app.services.image_processing_service import ImageProcessingService
 from app.services.quote_report_service import QuoteReportService
+from app.services.usage_budget import usage_budget
 from app.services.whatsapp_service import WhatsAppService
 from app.storage import ObjectStorage
 
@@ -213,6 +216,19 @@ class QuoteService:
         )
         return self._build_response(existing, raw_share_token)
 
+    async def _discard_preview(self, key: str, size: int) -> None:
+        """Delete an upload that will not be used and free its bytes if it is really gone."""
+        try:
+            gone = await self.r2_storage.delete_objects([key])
+        except Exception as exc:
+            logger.error("Could not delete unused quote preview: %s", exc)
+            return  # still occupies space: keeps its reservation until reconciliation
+        if key in gone:
+            try:
+                await usage_budget.release_storage(size)
+            except Exception as exc:
+                logger.error("Could not release storage reservation: %s", exc)
+
     async def validate_preview_image(self, file_bytes: bytes) -> tuple[str, int, int]:
         """Validate preview image format, size, and dimensions using Pillow."""
         if len(file_bytes) == 0:
@@ -221,8 +237,8 @@ class QuoteService:
                 details=[{"field": "file", "issue": "File size is 0 bytes"}],
             )
 
-        max_mb = get_settings().QUOTE_PREVIEW_MAX_MB
-        if len(file_bytes) > max_mb * 1024 * 1024:
+        max_mb = limits.QUOTE_PREVIEW_MAX_BYTES // (1024 * 1024)
+        if len(file_bytes) > limits.QUOTE_PREVIEW_MAX_BYTES:
             raise ValidationException(
                 message=f"Preview image is larger than {max_mb} MB.",
                 details=[{"field": "file", "issue": f"Image exceeds {max_mb} MB"}],
@@ -278,8 +294,6 @@ class QuoteService:
         idempotency_key: str | None = None,
     ) -> QuotePrepareResponse:
         """Capture Memory Wall design, upload preview to R2, and return WhatsApp URL."""
-        settings = get_settings()
-
         # 0. A retry of an earlier request returns that quote instead of creating another.
         fingerprint = self._fingerprint(design_input)
         if idempotency_key:
@@ -369,23 +383,30 @@ class QuoteService:
         raw_share_token = generate_secure_token(32)
         share_token_hash = hash_token(raw_share_token)
         share_token_prefix = raw_share_token[:8]
-        expires_at = datetime.now(UTC) + timedelta(days=settings.QUOTE_SHARE_EXPIRY_DAYS)
+        expires_at = datetime.now(UTC) + timedelta(days=limits.QUOTE_SHARE_EXPIRY_DAYS)
 
         # 6. Upload preview image to Cloudflare R2
         ext = PREVIEW_EXTENSIONS[mime_type]
         preview_key = f"quotes/{current_user.id}/{quote_reference}/preview.{ext}"
 
-        await self.r2_storage.put_object(
-            key=preview_key,
-            data=preview_bytes,
-            content_type=mime_type,
-            metadata={
-                "quote_reference": quote_reference,
-                "user_id": str(current_user.id),
-                "width": str(img_w),
-                "height": str(img_h),
-            },
-        )
+        preview_size = len(preview_bytes)
+        if not await usage_budget.reserve_storage(preview_size):
+            raise StorageLimitReachedException()
+        try:
+            await self.r2_storage.put_object(
+                key=preview_key,
+                data=preview_bytes,
+                content_type=mime_type,
+                metadata={
+                    "quote_reference": quote_reference,
+                    "user_id": str(current_user.id),
+                    "width": str(img_w),
+                    "height": str(img_h),
+                },
+            )
+        except Exception:
+            await self._discard_preview(preview_key, preview_size)
+            raise
 
         # 7. Construct and persist immutable QuoteInDB document in MongoDB
         wall_snapshot = QuoteWallSnapshot(
@@ -427,7 +448,7 @@ class QuoteService:
             )
         except DuplicateQuoteError:
             # A concurrent request with this key won the race: drop our upload, return its quote.
-            await self.r2_storage.delete_object(preview_key)
+            await self._discard_preview(preview_key, preview_size)
             winner = await self.quote_repo.get_by_idempotency_key(
                 str(current_user.id), idempotency_key or ""
             )
@@ -442,7 +463,7 @@ class QuoteService:
                 preview_key,
                 exc,
             )
-            await self.r2_storage.delete_object(preview_key)
+            await self._discard_preview(preview_key, preview_size)
             raise
 
         # 8. WhatsApp message and Click-to-Chat URL for the customer to review and send

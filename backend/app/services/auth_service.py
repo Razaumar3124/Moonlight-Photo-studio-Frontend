@@ -4,13 +4,16 @@ from datetime import UTC, datetime, timedelta
 from bson import ObjectId
 from fastapi import BackgroundTasks
 
+from app.core import limits
 from app.core.config import get_settings
 from app.core.exceptions import (
     AccountAlreadyExistsException,
     AccountDisabledException,
+    EmailLimitReachedException,
     InvalidCredentialsException,
     InvalidTokenException,
     RateLimitExceededException,
+    RegistrationLimitException,
     ValidationException,
 )
 from app.core.security import (
@@ -44,6 +47,7 @@ from app.services.email_service import EmailService
 from app.services.email_service import email_service as global_email_service
 from app.services.rate_limiter import rate_limiter
 from app.services.token_service import TokenService
+from app.services.usage_budget import seconds_until_utc_midnight, usage_budget
 
 logger = logging.getLogger("moonlight_studio.auth")
 
@@ -62,6 +66,11 @@ class AuthService:
         self.session_repo = session_repo
         self.token_service = token_service
         self.email_service = email_service or global_email_service
+
+    @staticmethod
+    async def _reserve_registration_slot(ip_address: str | None) -> None:
+        if not await usage_budget.reserve_registration(ip_address):
+            raise RegistrationLimitException(seconds_until_utc_midnight())
 
     async def register_user(
         self,
@@ -92,6 +101,9 @@ class AuthService:
                 field="phone", issue="Mobile number is already registered"
             )
 
+        # Daily cap on new accounts per network, counted only for real sign-ups
+        await self._reserve_registration_slot(ip_address)
+
         # Hash password using Argon2id
         hashed_pwd = hash_password(req.password)
         now = datetime.now(UTC)
@@ -110,7 +122,11 @@ class AuthService:
             updated_at=now,
         )
 
-        created_user = await self.user_repo.create(user_doc)
+        try:
+            created_user = await self.user_repo.create(user_doc)
+        except Exception:
+            await usage_budget.release_registration(ip_address)
+            raise
 
         # Issue access & refresh tokens
         issued = await self.token_service.create_session(
@@ -221,11 +237,20 @@ class AuthService:
         logger.info("User authenticated successfully: id=%s", user.id)
         return AuthResult(AuthResponse(user=user_out, tokens=issued.public), issued.refresh_token)
 
-    async def _deliver_otp_email(self, to_email: str, otp_code: str, expiry_minutes: int) -> None:
+    async def _deliver_otp_email(
+        self,
+        to_email: str,
+        otp_code: str,
+        expiry_minutes: int,
+        slot_reserved: bool = False,
+    ) -> None:
         """Send the OTP email; failures are logged, never surfaced to the requester."""
         try:
             await self.email_service.send_otp_email(
-                to_email=to_email, otp_code=otp_code, expiry_minutes=expiry_minutes
+                to_email=to_email,
+                otp_code=otp_code,
+                expiry_minutes=expiry_minutes,
+                slot_reserved=slot_reserved,
             )
         except Exception as exc:  # noqa: BLE001 - delivery problems must not leak to clients
             logger.error("Password reset email delivery failed: %s", type(exc).__name__)
@@ -258,6 +283,20 @@ class AuthService:
             settings.RATE_LIMIT_FORGOT_PASSWORD_WINDOW_SECONDS,
         )
 
+        # Daily caps keep one address or one network from using up the shared email allowance.
+        await rate_limiter.hit(
+            "forgot_password:ip_daily",
+            ip_address or "unknown",
+            limits.FORGOT_PASSWORD_IP_DAILY,
+            86400,
+        )
+        await rate_limiter.hit(
+            "forgot_password:email_daily",
+            req.email,
+            limits.FORGOT_PASSWORD_EMAIL_DAILY,
+            86400,
+        )
+
         # 2. Check 60-second database-backed cooldown across instances
         active_otp = await self.session_repo.get_active_otp(req.email)
         now = datetime.now(UTC)
@@ -267,11 +306,36 @@ class AuthService:
                 f"Please wait {remaining} seconds before requesting another verification code."
             )
 
+        # Today's email allowance is used up: every address gets the same answer, whether or
+        # not an account exists, so this reveals nothing about who is registered.
+        uses_resend = settings.EMAIL_PROVIDER == "resend"
+        if uses_resend and await usage_budget.email_exhausted():
+            raise EmailLimitReachedException()
+
         # 3. Lookup user; if active, generate OTP and dispatch email
         user = await self.user_repo.get_by_email(req.email)
         if user and user.is_active:
+            # Claim one slot of the daily allowance (atomic). Losing a race for the very last
+            # slot yields the same generic response as an unknown account: no email, no code.
+            slot_reserved = False
+            if uses_resend:
+                if not await usage_budget.reserve_email():
+                    return ForgotPasswordResponse(
+                        message=(
+                            "If an account is associated with this email, "
+                            "a verification code was sent."
+                        ),
+                        cooldown_seconds=settings.EMAIL_OTP_COOLDOWN_SECONDS,
+                    )
+                slot_reserved = True
+
             # Invalidate any prior active OTP challenge for this email
-            await self.session_repo.invalidate_active_otps(req.email)
+            try:
+                await self.session_repo.invalidate_active_otps(req.email)
+            except Exception:
+                if slot_reserved:
+                    await usage_budget.release_email()
+                raise
 
             otp_code = generate_otp()
             otp_hash = hash_otp(req.email, otp_code)
@@ -291,15 +355,24 @@ class AuthService:
                 used=False,
                 created_at=now,
             )
-            await self.session_repo.create_password_reset(otp_doc)
+            try:
+                await self.session_repo.create_password_reset(otp_doc)
+            except Exception:
+                if slot_reserved:
+                    await usage_budget.release_email()
+                raise
 
             if background_tasks is not None:
                 background_tasks.add_task(
-                    self._deliver_otp_email, req.email, otp_code, settings.EMAIL_OTP_EXPIRE_MINUTES
+                    self._deliver_otp_email,
+                    req.email,
+                    otp_code,
+                    settings.EMAIL_OTP_EXPIRE_MINUTES,
+                    slot_reserved,
                 )
             else:
                 await self._deliver_otp_email(
-                    req.email, otp_code, settings.EMAIL_OTP_EXPIRE_MINUTES
+                    req.email, otp_code, settings.EMAIL_OTP_EXPIRE_MINUTES, slot_reserved
                 )
             logger.info("Password reset OTP generated for user_id=%s", user.id)
 

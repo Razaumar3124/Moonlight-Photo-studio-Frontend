@@ -88,6 +88,10 @@ export function mapRegisterError(error: unknown): SubmitErrorResult<RegisterFiel
     rejected: 'We couldn’t create your account. Check your details and try again.',
     conflict: 'An account with this email or mobile number already exists. Try signing in instead.',
     rateLimited: 'Too many attempts. Please wait a minute and try again.',
+    byCode: {
+      REGISTRATION_LIMIT_REACHED:
+        'Too many accounts were created from your network today. Please try again tomorrow or contact the studio.',
+    },
     server: 'We couldn’t create your account right now. Please try again shortly.',
   })
 }

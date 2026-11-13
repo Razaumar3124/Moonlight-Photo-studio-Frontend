@@ -63,11 +63,44 @@ With the template's defaults every integration is **offline**:
 
 **Production guard.** With `ENVIRONMENT=production` the app refuses to start unless secrets are
 unique and ≥ 32 characters, `DEBUG=false`, storage is R2 with credentials, email is Resend with
-test mode off, Groq has a key when enabled, the WhatsApp number isn't the placeholder and
-`PUBLIC_APP_URL` is https. Errors name the variables, never their values.
+a sender on a verified domain, Groq has a key when enabled, the WhatsApp number isn't the
+placeholder, `LOG_LEVEL` isn't `DEBUG`, the database isn't localhost and `PUBLIC_APP_URL` and
+every CORS origin are https. Errors name the variables, never their values.
 
 Startup logs the (credential-masked) database target and storage backend, and warns if the
 built-in development `SECRET_KEY` is in use.
+
+## Free-tier operations (Phase 7)
+
+The fixed limits live in [app/core/limits.py](app/core/limits.py), not in `.env`, so they cannot be
+raised by accident. Counters are in the `usage_counters` collection (atomic updates, shared by all
+workers; daily keys are removed by a TTL index).
+
+| Resource | Safeguard |
+|---|---|
+| Resend (100 emails per UTC day) | Warning logged at 95, the 101st is refused (`503 EMAIL_DAILY_LIMIT_REACHED`, same answer for every address). A slot is given back when the provider definitely did not send. Today's usage: `GET /health` → `usage.email`. |
+| Cloudflare R2 (10 GB-month) | Uploads and quote previews stop at 9.7 GB (`503 STORAGE_LIMIT_REACHED`). Counter reserved before writing, released for what is really gone, re-measured every 6 h. Usage: `usage.storage`. |
+| Photos | 2 MB per file and 25 megapixels; the planner shrinks larger photos in the browser first. |
+| Quote previews | JPEG about 1600 px (< 600 KB), 2 MB limit, deleted 31 days after creation unless a live quote still uses them. |
+| MongoDB Atlas | No application-level caps; saved designs, versions and users are never pruned. Temporary records expire by TTL (sessions, rate limits, daily counters, quotes). `usage.database` shows the data size (cached 5 min); set an Atlas alert on storage. |
+| Groq | Off by default; sign-in required; 10 requests per user and 100 per day shared, 50,000 tokens per day. |
+| Registration | 20 new accounts per network per day. |
+
+**Manual actions (cannot be done from code):**
+
+1. **R2 lifecycle rule (backstop).** Cloudflare dashboard → R2 → your bucket → Settings →
+   *Object lifecycle rules* → add a rule: prefix `quotes/`, *Delete objects* after **35 days**. The
+   app already removes expired previews; the rule covers anything it missed. Do **not** put a rule
+   on `users/` (customer photos).
+2. **Billing alerts.** Cloudflare → Notifications → *R2 usage* alert at about 8 GB; Resend → set
+   up usage emails; MongoDB Atlas → alert at about 400 MB of storage.
+3. **Resend sender.** Verify a domain in Resend and set `RESEND_FROM_EMAIL` to an address on it
+   (production refuses `onboarding@resend.dev`).
+4. If the bucket is shared with anything else, the 9.7 GB counter measures the *whole bucket*:
+   use a bucket dedicated to Moonlight.
+
+These guards limit what this app consumes; they cannot prove that no provider charge will occur
+(usage outside the app, provider-side pricing changes). Verify the plan limits in each dashboard.
 
 ## Security model (Phase 2)
 
@@ -80,7 +113,7 @@ built-in development `SECRET_KEY` is in use.
 | Rate limits | Fixed windows in the `rate_limits` collection (atomic upserts, TTL index, SHA-256-hashed subjects), or bounded process memory (`RATE_LIMIT_BACKEND=memory`). Login: per IP + account (5/5 min), per account (20/15 min), per IP (30/5 min). Registration, code requests (per email and IP), code checks (per IP and per email), the reset step, uploads and quotes are limited too. 429 responses carry `Retry-After`. |
 | Account enumeration | Unknown accounts cost the same Argon2id work as wrong passwords (a real dummy hash). Forgot-password answers identically for unknown emails; the email goes out after the response, and delivery errors are logged, never returned. |
 | Revocation | A password reset revokes refresh sessions, and access tokens issued before it (sub-second `iat`) on both required and optional auth. |
-| Request size | Bodies are capped while streaming, before buffering: `MAX_REQUEST_BODY_BYTES` (1 MiB) generally, `R2_MAX_UPLOAD_MB` for photos, `QUOTE_PREVIEW_MAX_MB` for quote previews. A declared `Content-Length` over the limit gets 413 before any body byte is read. |
+| Request size | Bodies are capped while streaming, before buffering: `MAX_REQUEST_BODY_BYTES` (1 MiB) generally, 2 MB for photos and for quote previews (`app/core/limits.py`). A declared `Content-Length` over the limit gets 413 before any body byte is read. |
 | Errors & logs | Clients get the standard envelope with generic text. Driver, SDK and exception messages go to logs only, with credentials masked (including tracebacks); JSON logs never include raw log arguments. Validation errors never echo submitted values. |
 | Health | `/health/live` and `/health/ready` (MongoDB ping only) are public and minimal. Detailed `GET /health` is open in development, otherwise it answers 404 without a matching `X-Health-Token` (`HEALTH_DIAGNOSTICS_TOKEN`). |
 | Headers | `nosniff`, `X-Frame-Options: DENY`, deny-all API CSP, `Referrer-Policy`, `Permissions-Policy`, COOP; `Cache-Control: no-store` on `/auth/*`; HSTS in production. The shared quote report has its own CSP (no scripts), `Referrer-Policy: no-referrer` and `private, no-store`. CORS allows only the four headers the frontend sends. |

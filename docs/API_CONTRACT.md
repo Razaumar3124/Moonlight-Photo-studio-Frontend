@@ -77,7 +77,7 @@ Every error, including validation, auth, CSRF, size limits and unhandled 500s, u
 | 403    | `FORBIDDEN` (someone else's resource), `ACCOUNT_DISABLED`, `CSRF_VALIDATION_FAILED`                                                                                                                                                      |
 | 404    | `RESOURCE_NOT_FOUND`                                                                                                                                                                                                                     |
 | 409    | `ACCOUNT_ALREADY_EXISTS` (`details[].field` = `email` or `phone`), `PHOTO_IN_USE` (deleting a photo that saved designs still use), `IDEMPOTENCY_KEY_REUSED` (an `Idempotency-Key` used for a different design, or older than 10 minutes) |
-| 413    | `PAYLOAD_TOO_LARGE` (bodies over 1 MiB; photos over 25 MB; quote previews over 15 MB)                                                                                                                                                    |
+| 413    | `PAYLOAD_TOO_LARGE` (bodies over 1 MiB; photos over 2 MB; quote previews over 2 MB)                                                                                                                                                    |
 | 422    | `VALIDATION_ERROR`                                                                                                                                                                                                                       |
 | 429    | `RATE_LIMIT_EXCEEDED`, with a `Retry-After` header in seconds                                                                                                                                                                            |
 | 500    | `INTERNAL_SERVER_ERROR`                                                                                                                                                                                                                  |
@@ -246,7 +246,12 @@ Unknown IDs are rejected with 422 (`"Unknown frame size; see GET /catalog frame_
 - **`Photo`**: `{ id, user_id, original_filename, mime_type, file_size_bytes, width_px, height_px, aspect_ratio, suggested_orientation, thumbnail_url, preview_url, created_at }`. `PhotoSummary` is a subset of it.
 - **Accepted files**:
   - JPEG, PNG or WebP, detected from the file content.
-  - At most 25 MB, sides 300–8192 px, EXIF orientation applied.
+  - At most **2 MB**, sides 300–8192 px, at most 25 megapixels (width × height), EXIF orientation
+    applied. The planner shrinks larger photos in the browser before uploading, so customers
+    rarely meet the limit; direct API clients get 413 (file) or 422 (pixels).
+- **Storage ceiling**: the originals, previews, thumbnails and quote previews together may use
+  at most 9.7 GB. Past it, uploads and quote requests answer **503 `STORAGE_LIMIT_REACHED`**
+  (a retry later or contact the studio; nothing is stored).
 - **Rate limit**: uploads are limited per user.
 
 ---
@@ -364,7 +369,7 @@ The engine is the server-side twin of the planner's layout code, with the same r
 
 Form fields:
 
-- **`file`**: the rendered wall preview (PNG, WebP or JPEG, at most 15 MB, 100–8192 px).
+- **`file`**: the rendered wall preview (JPEG, PNG or WebP, at most **2 MB**, 100–8192 px; the planner sends a JPEG about 1600 px wide, under 600 KB).
 - **`design_data`**: the planner state as a JSON string.
 
 Header (optional, recommended): **`Idempotency-Key`** (8–64 characters of `A–Z a–z 0–9 _ -`). A retry or double click with the same key returns the **same quote** instead of creating another (valid for 10 minutes, per user). The server keeps only a hash of the share token, so a replay re-issues the share link with a fresh token (the earlier link stops working). The same key with a different design → 409 `IDEMPOTENCY_KEY_REUSED`.
@@ -425,7 +430,7 @@ Header (optional, recommended): **`Idempotency-Key`** (8–64 characters of `A�
 | ------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `GET /health/live`  | public                                                  | `{ status, service }`                                                                  |
 | `GET /health/ready` | public                                                  | `{ status, service, database: { status, latency_ms }, timestamp }`. Pings MongoDB only |
-| `GET /health`       | development only; elsewhere `X-Health-Token` (else 404) | Detailed component diagnostics                                                         |
+| `GET /health`       | development only; elsewhere `X-Health-Token` (else 404) | Detailed component diagnostics and `usage` (emails today, stored bytes, database size). Provider probes (Resend, Google, Groq, R2) are cached for 60 s |
 
 ## 10. Response headers
 

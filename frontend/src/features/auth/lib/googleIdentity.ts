@@ -18,6 +18,8 @@ interface GoogleButtonConfig {
   logo_alignment?: 'left' | 'center'
   /** Pixels, 200–400. */
   width?: number
+  /** Language/locale code, e.g. 'en'. Defaults to browser language if omitted. */
+  locale?: string
 }
 
 interface GoogleAccountsId {

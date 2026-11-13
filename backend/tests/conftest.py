@@ -54,10 +54,12 @@ from app.api.dependencies import (
     get_template_repository,
     get_user_repository,
 )
+from app.api.v1.endpoints.health import clear_probe_cache
 from app.core.config import get_settings
 from app.db.mongodb import mongo_manager
 from app.main import create_application
 from app.services.rate_limiter import rate_limiter
+from app.services.usage_budget import usage_budget
 from tests.fakes import (
     FakeCatalogRepository,
     FakeDesignRepository,
@@ -128,7 +130,6 @@ def test_settings() -> Settings:
         SECRET_KEY="test-secret-key-32-chars-minimum-moonlight-studio-test-env",
         ACCESS_TOKEN_EXPIRE_MINUTES=30,
         REFRESH_TOKEN_EXPIRE_DAYS=14,
-        PASSWORD_RESET_TOKEN_EXPIRE_MINUTES=60,
         GOOGLE_CLIENT_ID="test-google-client-id.apps.googleusercontent.com",
         EMAIL_PROVIDER="mock",
         BUSINESS_WHATSAPP_NUMBER="919876543210",
@@ -197,10 +198,14 @@ def setup_default_catalogs(
 
 @pytest.fixture(autouse=True)
 def reset_rate_limiter():
-    """Clear in-memory rate limiter buckets before and after each test."""
+    """Clear in-memory rate limiter buckets, usage budgets and health probe cache per test."""
     rate_limiter.clear_all()
+    usage_budget.clear_all()
+    clear_probe_cache()
     yield
     rate_limiter.clear_all()
+    usage_budget.clear_all()
+    clear_probe_cache()
 
 
 @pytest.fixture

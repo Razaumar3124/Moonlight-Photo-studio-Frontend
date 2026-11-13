@@ -13,7 +13,7 @@ from app.api.dependencies import (
     OptionalCurrentUserDep,
     PhotoServiceDep,
 )
-from app.core.config import get_settings
+from app.core import limits
 from app.core.exceptions import PayloadTooLargeException, ValidationException
 from app.core.security import get_client_ip
 from app.schemas.common import ApiErrorResponse
@@ -70,9 +70,8 @@ async def upload_photo(
 
     # Size is checked before the upload is loaded into memory (the body itself is already
     # capped by BodySizeLimitMiddleware while streaming).
-    settings = get_settings()
-    max_bytes = settings.max_upload_bytes
-    too_large = f"That photo is larger than {settings.R2_MAX_UPLOAD_MB} MB."
+    max_bytes = limits.PHOTO_MAX_BYTES
+    too_large = f"That photo is larger than {max_bytes // (1024 * 1024)} MB."
     if file.size is not None and file.size > max_bytes:
         raise PayloadTooLargeException(too_large, field="file")
     file_bytes = await file.read(max_bytes + 1)
